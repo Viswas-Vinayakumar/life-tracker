@@ -2,21 +2,41 @@
 
 import { useState, useEffect } from 'react'
 import { format, parseISO } from 'date-fns'
-import { Check, X, ChevronDown, ChevronUp } from 'lucide-react'
-import { getScoreColor, getScoreLabel } from '@/lib/scoring'
-import { getLogs } from '@/lib/db'
+import { Check, X, ChevronDown, ChevronUp, Pencil, Save, Loader2 } from 'lucide-react'
+import { getScoreColor, getScoreLabel, calculateScore } from '@/lib/scoring'
+import { getLogs, upsertLog } from '@/lib/db'
 import type { DailyLog } from '@/types'
+import { toast } from 'sonner'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
-function HabitDot({ done }: { done: boolean }) {
+function HabitDot({ done, color }: { done: boolean; color?: string }) {
   return (
     <div style={{
       width: 18, height: 18, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: done ? 'color-mix(in srgb, var(--accent) 18%, transparent)' : 'var(--bg-3)',
-      transition: 'background 0.15s',
+      background: done ? `color-mix(in srgb, ${color ?? 'var(--accent)'} 18%, transparent)` : 'var(--bg-3)',
     }}>
       {done
-        ? <Check size={9} strokeWidth={3} color="var(--accent)" />
-        : <X size={8} strokeWidth={2} color="var(--text-3)" style={{ opacity: 0.3 }} />}
+        ? <Check size={9} strokeWidth={3} color={color ?? 'var(--accent)'} />
+        : <X size={8} strokeWidth={2} color="var(--text-3)" style={{ opacity: 0.35 }} />}
+    </div>
+  )
+}
+
+function Slider({ value, max, onChange, color }: { value: number; max: number; onChange: (v: number) => void; color: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+      {Array.from({ length: max }, (_, i) => (
+        <button key={i} onClick={() => onChange(value === i + 1 ? 0 : i + 1)}
+          style={{
+            minWidth: 24, height: 24, borderRadius: 6, border: 'none', cursor: 'default', fontSize: 11, fontWeight: 700,
+            background: i < value ? `color-mix(in srgb, ${color} 18%, transparent)` : 'var(--bg-3)',
+            color: i < value ? color : 'var(--text-3)',
+            outline: i + 1 === value ? `1.5px solid ${color}` : 'none',
+            transition: 'all 0.1s ease',
+          }}>
+          {i + 1}
+        </button>
+      ))}
     </div>
   )
 }
@@ -25,10 +45,41 @@ export default function HistoryPage() {
   const [logs, setLogs] = useState<DailyLog[]>([])
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [editData, setEditData] = useState<Partial<DailyLog>>({})
+  const [saving, setSaving] = useState(false)
+  const [confirm, setConfirm] = useState<{ open: boolean; logDate?: string }>({ open: false })
 
   useEffect(() => {
     getLogs(90).then(data => { setLogs(data); setLoading(false) }).catch(() => setLoading(false))
   }, [])
+
+  const startEdit = (log: DailyLog) => {
+    setEditing(log.date)
+    setEditData({ ...log })
+  }
+
+  const cancelEdit = () => {
+    setEditing(null)
+    setEditData({})
+  }
+
+  const saveEdit = async (date: string) => {
+    setSaving(true)
+    try {
+      const food: never[] = []
+      const score = calculateScore(editData, food)
+      const updated = { ...editData, performance_score: score, date }
+      await upsertLog(updated)
+      setLogs(prev => prev.map(l => l.date === date ? { ...l, ...updated } as DailyLog : l))
+      setEditing(null)
+      setEditData({})
+      toast.success('Day updated')
+    } catch { toast.error('Failed to save') }
+    finally { setSaving(false) }
+  }
+
+  const patch = (k: keyof DailyLog, v: DailyLog[keyof DailyLog]) => setEditData(prev => ({ ...prev, [k]: v }))
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 12, color: 'var(--text-3)' }}>
@@ -41,28 +92,24 @@ export default function HistoryPage() {
 
   return (
     <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* Header */}
       <div>
         <h1 className="title-lg">History</h1>
-        <p className="footnote" style={{ marginTop: 4 }}>Last 90 days · {logs.length} logged</p>
+        <p className="footnote" style={{ marginTop: 4 }}>Last 90 days · {logs.length} logged · tap a day to expand, tap edit to modify</p>
       </div>
 
-      {/* 30-day habit heatmap */}
+      {/* 30-day heatmap */}
       {last30.length > 0 && (
         <section>
           <p className="section-label">30-Day Grid</p>
           <div className="card" style={{ padding: '14px 16px', overflowX: 'auto' }}>
             <div style={{ minWidth: 480 }}>
               <div style={{ display: 'grid', gap: 4, gridTemplateColumns: '72px repeat(30, 1fr)' }}>
-                {/* Header */}
                 <div />
                 {[...last30].reverse().map(l => (
                   <div key={l.date} style={{ textAlign: 'center', fontSize: 8, color: 'var(--text-3)' }}>
                     {format(parseISO(l.date), 'd')}
                   </div>
                 ))}
-
-                {/* Rows */}
                 {[
                   { key: 'gym_done' as const, label: '🏋️ Gym', color: 'var(--violet)' },
                   { key: 'study_done' as const, label: '📚 Study', color: 'var(--cyan)' },
@@ -77,8 +124,7 @@ export default function HistoryPage() {
                       <div key={`${key}-${l.date}`}
                         style={{
                           aspectRatio: '1', borderRadius: 3,
-                          background: l[key] ? `color-mix(in srgb, ${color} 60%, transparent)` : 'var(--bg-3)',
-                          transition: 'background 0.15s',
+                          background: l[key] ? `color-mix(in srgb, ${color} 65%, transparent)` : 'var(--bg-3)',
                         }}
                         title={`${label}: ${format(parseISO(l.date), 'MMM d')} — ${l[key] ? 'Done' : 'Missed'}`}
                       />
@@ -91,10 +137,9 @@ export default function HistoryPage() {
         </section>
       )}
 
-      {/* Divider */}
       <div style={{ height: 1, background: 'var(--border-2)' }} />
 
-      {/* Log list */}
+      {/* Day log list */}
       <section style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <p className="section-label">All Days</p>
         {sorted.length === 0 ? (
@@ -106,59 +151,204 @@ export default function HistoryPage() {
           const score = log.performance_score ?? 0
           const color = getScoreColor(score)
           const isExpanded = expanded === log.date
+          const isEditing = editing === log.date
+          const ed = isEditing ? editData : log
 
           return (
-            <div key={log.date} className="card" style={{ overflow: 'hidden', animation: `fade-up 0.15s ${idx * 0.02}s ease both` }}>
-              <button
-                onClick={() => setExpanded(isExpanded ? null : log.date)}
-                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'none', border: 'none', cursor: 'default', textAlign: 'left' }}>
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: 600 }}>{format(parseISO(log.date), 'EEEE, MMM d')}</p>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 5 }}>
-                    <HabitDot done={log.gym_done} />
-                    <HabitDot done={log.study_done} />
-                    <HabitDot done={log.skincare_am} />
-                    <HabitDot done={log.skincare_pm} />
-                    <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 3 }}>
-                      {[log.gym_done, log.study_done, log.skincare_am, log.skincare_pm].filter(Boolean).length}/4
-                    </span>
+            <div key={log.date} className="card" style={{ overflow: 'hidden', animation: `fade-up 0.14s ${Math.min(idx, 10) * 0.02}s ease both` }}>
+              {/* Row header */}
+              <div style={{ display: 'flex', alignItems: 'center', padding: '12px 14px', gap: 10 }}>
+                <button
+                  onClick={() => { setExpanded(isExpanded ? null : log.date); if (isEditing) cancelEdit() }}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'default', textAlign: 'left' }}>
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 600 }}>{format(parseISO(log.date), 'EEEE, MMM d')}</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 5 }}>
+                      <HabitDot done={log.gym_done} color="var(--violet)" />
+                      <HabitDot done={log.study_done} color="var(--cyan)" />
+                      <HabitDot done={log.skincare_am} color="var(--amber)" />
+                      <HabitDot done={log.skincare_pm} color="var(--indigo)" />
+                      <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 2 }}>
+                        {[log.gym_done, log.study_done, log.skincare_am, log.skincare_pm].filter(Boolean).length}/4
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ textAlign: 'right' }}>
-                    <span className="tabular-nums" style={{ fontSize: 20, fontWeight: 700, color }}>{score}</span>
-                    <p style={{ fontSize: 10, fontWeight: 600, color }}>{getScoreLabel(score)}</p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <span className="tabular-nums" style={{ fontSize: 20, fontWeight: 700, color }}>{score}</span>
+                      <p style={{ fontSize: 10, fontWeight: 600, color }}>{getScoreLabel(score)}</p>
+                    </div>
+                    {isExpanded ? <ChevronUp size={12} color="var(--text-3)" /> : <ChevronDown size={12} color="var(--text-3)" />}
                   </div>
-                  {isExpanded
-                    ? <ChevronUp size={12} color="var(--text-3)" />
-                    : <ChevronDown size={12} color="var(--text-3)" />}
-                </div>
-              </button>
+                </button>
 
+                {/* Edit button */}
+                <button
+                  onClick={e => { e.stopPropagation(); isEditing ? cancelEdit() : (setExpanded(log.date), startEdit(log)) }}
+                  title={isEditing ? 'Cancel edit' : 'Edit this day'}
+                  style={{
+                    width: 28, height: 28, borderRadius: 7, border: 'none', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: isEditing ? 'var(--bg-3)' : 'transparent',
+                    color: isEditing ? 'var(--text-2)' : 'var(--text-3)',
+                    transition: 'all 0.15s',
+                  }}>
+                  {isEditing ? <X size={13} /> : <Pencil size={13} />}
+                </button>
+              </div>
+
+              {/* Expanded panel */}
               {isExpanded && (
-                <div style={{ padding: '0 14px 14px', borderTop: '1px solid var(--border-2)', paddingTop: 12, animation: 'fade-up 0.15s ease both' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, fontSize: 12 }}>
-                    {[
-                      { label: '🏋️ Gym', value: log.gym_done ? (log.gym_notes || 'Done ✓') : 'Skipped', done: log.gym_done },
-                      { label: '📚 Study', value: log.study_done ? (log.study_notes || 'Done ✓') : 'Skipped', done: log.study_done },
-                      { label: '💧 Water', value: `${log.water_glasses ?? 0} glasses`, done: (log.water_glasses ?? 0) >= 8 },
-                      { label: '😴 Sleep', value: log.sleep_hours ? `${log.sleep_hours}h` : '—', done: !!log.sleep_hours },
-                      { label: '😊 Mood', value: log.mood ? `${log.mood}/10` : '—', done: !!log.mood },
-                      { label: '⚡ Energy', value: log.energy ? `${log.energy}/10` : '—', done: !!log.energy },
-                    ].map(({ label, value, done }) => (
-                      <div key={label} style={{
-                        padding: '8px 10px', borderRadius: 8,
-                        background: done ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'var(--bg-2)',
-                      }}>
-                        <p style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 2 }}>{label}</p>
-                        <p style={{ fontSize: 12, fontWeight: 500, color: done ? 'var(--text-1)' : 'var(--text-3)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{value}</p>
+                <div style={{ padding: '0 14px 14px', borderTop: '1px solid var(--border-2)', paddingTop: 14, animation: 'fade-up 0.15s ease both' }}>
+                  {isEditing ? (
+                    /* ─── EDIT MODE ─────────────────────────────── */
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      {/* Habits toggles */}
+                      <div>
+                        <p className="footnote" style={{ marginBottom: 8 }}>Habits</p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                          {[
+                            { key: 'gym_done' as const, label: '🏋️ Gym', color: 'var(--violet)' },
+                            { key: 'study_done' as const, label: '📚 Study', color: 'var(--cyan)' },
+                            { key: 'skincare_am' as const, label: '☀️ Skincare AM', color: 'var(--amber)' },
+                            { key: 'skincare_pm' as const, label: '🌙 Skincare PM', color: 'var(--indigo)' },
+                          ].map(({ key, label, color }) => (
+                            <button key={key} onClick={() => patch(key, !ed[key])}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8,
+                                border: 'none', cursor: 'default', textAlign: 'left',
+                                background: ed[key] ? `color-mix(in srgb, ${color} 14%, transparent)` : 'var(--bg-2)',
+                                outline: ed[key] ? `1.5px solid ${color}` : 'none',
+                                transition: 'all 0.15s ease',
+                              }}>
+                              <div style={{
+                                width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                background: ed[key] ? color : 'var(--bg-3)',
+                              }}>
+                                {ed[key] && <Check size={10} color="white" strokeWidth={3} />}
+                              </div>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: ed[key] ? color : 'var(--text-2)' }}>{label}</span>
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                  {log.journal && (
-                    <div style={{ padding: '10px 12px', borderRadius: 8, background: 'var(--bg-2)', marginTop: 6 }}>
-                      <p style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3 }}>Journal</p>
-                      <p style={{ fontSize: 12 }}>{log.journal}</p>
+
+                      {/* Notes */}
+                      {(ed.gym_done || ed.study_done) && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {ed.gym_done && (
+                            <div>
+                              <p className="footnote" style={{ marginBottom: 4 }}>Gym notes</p>
+                              <input value={ed.gym_notes ?? ''} onChange={e => patch('gym_notes', e.target.value)} placeholder="What did you train?"
+                                style={{ width: '100%', height: 34, borderRadius: 8, border: '1px solid var(--border)', padding: '0 10px', fontSize: 13, background: 'var(--bg-2)', color: 'var(--text-1)' }} />
+                            </div>
+                          )}
+                          {ed.study_done && (
+                            <div>
+                              <p className="footnote" style={{ marginBottom: 4 }}>Study notes</p>
+                              <input value={ed.study_notes ?? ''} onChange={e => patch('study_notes', e.target.value)} placeholder="What did you study?"
+                                style={{ width: '100%', height: 34, borderRadius: 8, border: '1px solid var(--border)', padding: '0 10px', fontSize: 13, background: 'var(--bg-2)', color: 'var(--text-1)' }} />
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Vitals */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        {/* Water */}
+                        <div>
+                          <p className="footnote" style={{ marginBottom: 6 }}>💧 Water glasses</p>
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {Array.from({ length: 10 }, (_, i) => (
+                              <button key={i} onClick={() => patch('water_glasses', i < (ed.water_glasses ?? 0) ? i : i + 1)}
+                                style={{
+                                  width: 26, height: 26, borderRadius: 6, border: 'none', cursor: 'default', fontSize: 13,
+                                  background: i < (ed.water_glasses ?? 0) ? 'color-mix(in srgb, var(--cyan) 18%, transparent)' : 'var(--bg-3)',
+                                  outline: i < (ed.water_glasses ?? 0) ? '1.5px solid var(--cyan)' : 'none',
+                                }}>
+                                💧
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Sleep */}
+                        <div>
+                          <p className="footnote" style={{ marginBottom: 6 }}>😴 Sleep hours</p>
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {[5, 6, 7, 7.5, 8, 9].map(h => (
+                              <button key={h} onClick={() => patch('sleep_hours', ed.sleep_hours === h ? undefined : h)}
+                                style={{
+                                  padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'default', fontSize: 11, fontWeight: 600,
+                                  background: ed.sleep_hours === h ? 'color-mix(in srgb, var(--indigo) 18%, transparent)' : 'var(--bg-3)',
+                                  color: ed.sleep_hours === h ? 'var(--indigo)' : 'var(--text-3)',
+                                  outline: ed.sleep_hours === h ? '1.5px solid var(--indigo)' : 'none',
+                                }}>
+                                {h}h
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Mood */}
+                        <div>
+                          <p className="footnote" style={{ marginBottom: 6 }}>😊 Mood ({ed.mood ?? '—'}/10)</p>
+                          <Slider value={ed.mood ?? 0} max={10} color="var(--warning)" onChange={v => patch('mood', v || undefined)} />
+                        </div>
+
+                        {/* Energy */}
+                        <div>
+                          <p className="footnote" style={{ marginBottom: 6 }}>⚡ Energy ({ed.energy ?? '—'}/10)</p>
+                          <Slider value={ed.energy ?? 0} max={10} color="var(--violet)" onChange={v => patch('energy', v || undefined)} />
+                        </div>
+                      </div>
+
+                      {/* Journal */}
+                      <div>
+                        <p className="footnote" style={{ marginBottom: 6 }}>Journal</p>
+                        <textarea value={ed.journal ?? ''} onChange={e => patch('journal', e.target.value)} placeholder="Anything to note about this day…"
+                          style={{ width: '100%', minHeight: 60, resize: 'none', borderRadius: 8, border: '1px solid var(--border)', padding: '8px 10px', fontSize: 13, background: 'var(--bg-2)', color: 'var(--text-1)', lineHeight: 1.5 }} />
+                      </div>
+
+                      {/* Action buttons */}
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button onClick={cancelEdit}
+                          style={{ flex: 1, height: 34, borderRadius: 8, border: '1px solid var(--border)', background: 'none', cursor: 'default', fontSize: 13, color: 'var(--text-2)' }}>
+                          Cancel
+                        </button>
+                        <button onClick={() => saveEdit(log.date)} disabled={saving}
+                          style={{ flex: 2, height: 34, borderRadius: 8, border: 'none', background: 'var(--accent)', cursor: 'default', fontSize: 13, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                          {saving ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Save size={13} />}
+                          {saving ? 'Saving…' : 'Save Changes'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* ─── VIEW MODE ─────────────────────────────── */
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                        {[
+                          { label: '🏋️ Gym', value: log.gym_done ? (log.gym_notes || 'Done ✓') : 'Skipped', done: log.gym_done },
+                          { label: '📚 Study', value: log.study_done ? (log.study_notes || 'Done ✓') : 'Skipped', done: log.study_done },
+                          { label: '💧 Water', value: `${log.water_glasses ?? 0} glasses`, done: (log.water_glasses ?? 0) >= 8 },
+                          { label: '😴 Sleep', value: log.sleep_hours ? `${log.sleep_hours}h` : '—', done: !!log.sleep_hours },
+                          { label: '😊 Mood', value: log.mood ? `${log.mood}/10` : '—', done: !!log.mood },
+                          { label: '⚡ Energy', value: log.energy ? `${log.energy}/10` : '—', done: !!log.energy },
+                        ].map(({ label, value, done }) => (
+                          <div key={label} style={{
+                            padding: '8px 10px', borderRadius: 8,
+                            background: done ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'var(--bg-2)',
+                          }}>
+                            <p style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 2 }}>{label}</p>
+                            <p style={{ fontSize: 12, fontWeight: 500, color: done ? 'var(--text-1)' : 'var(--text-3)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {log.journal && (
+                        <div style={{ padding: '10px 12px', borderRadius: 8, background: 'var(--bg-2)' }}>
+                          <p style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3 }}>Journal</p>
+                          <p style={{ fontSize: 12 }}>{log.journal}</p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -167,6 +357,17 @@ export default function HistoryPage() {
           )
         })}
       </section>
+
+      {/* Confirm dialog (currently unused for logs since delete isn't surfaced here, but wired in) */}
+      <ConfirmDialog
+        open={confirm.open}
+        title="Delete this day?"
+        message="This will permanently remove all data for this day. This cannot be undone."
+        confirmLabel="Delete"
+        danger
+        onConfirm={() => setConfirm({ open: false })}
+        onCancel={() => setConfirm({ open: false })}
+      />
     </div>
   )
 }

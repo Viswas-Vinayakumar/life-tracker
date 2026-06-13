@@ -11,6 +11,7 @@ import type { FinancialEntry } from '@/types'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/types'
 import { getFinanceEntries, addFinanceEntry, deleteFinanceEntry } from '@/lib/db'
 import { toast } from 'sonner'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 const PIE_COLORS = ['#a78bfa', '#38bdf8', '#34d399', '#fbbf24', '#f87171', '#818cf8', '#ec4899', '#14b8a6']
 const now = new Date()
@@ -36,6 +37,7 @@ export default function FinancePage() {
   const [description, setDescription] = useState('')
   const [date, setDate] = useState(format(now, 'yyyy-MM-dd'))
   const [saving, setSaving] = useState(false)
+  const [confirm, setConfirm] = useState<{ open: boolean; id?: string }>({ open: false })
 
   useEffect(() => {
     getFinanceEntries(thisMonth)
@@ -74,9 +76,12 @@ export default function FinancePage() {
     finally { setSaving(false) }
   }
 
-  const handleRemove = async (id: string) => {
-    await deleteFinanceEntry(id)
-    setEntries(prev => prev.filter(e => e.id !== id))
+  const handleRemove = async () => {
+    if (!confirm.id) return
+    await deleteFinanceEntry(confirm.id)
+    setEntries(prev => prev.filter(e => e.id !== confirm.id))
+    setConfirm({ open: false })
+    toast.success('Entry deleted')
   }
 
   if (loading) return (
@@ -271,7 +276,7 @@ export default function FinancePage() {
                   <span className="tabular-nums" style={{ fontSize: 13, fontWeight: 700, color: entry.type === 'income' ? 'var(--success)' : 'var(--text-1)' }}>
                     {entry.type === 'income' ? '+' : '−'}₹{entry.amount.toLocaleString()}
                   </span>
-                  <button onClick={() => handleRemove(entry.id!)}
+                  <button onClick={() => setConfirm({ open: true, id: entry.id! })}
                     style={{ width: 24, height: 24, borderRadius: 6, border: 'none', cursor: 'default', background: 'none', color: 'var(--text-3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <X size={12} />
                   </button>
@@ -281,6 +286,16 @@ export default function FinancePage() {
           </div>
         )}
       </section>
+
+      <ConfirmDialog
+        open={confirm.open}
+        title="Delete transaction?"
+        message="This entry will be permanently removed from your financial records."
+        confirmLabel="Delete"
+        danger
+        onConfirm={handleRemove}
+        onCancel={() => setConfirm({ open: false })}
+      />
     </div>
   )
 }

@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { getTodos, addTodo, updateTodo, deleteTodo, completeTodo } from '@/lib/db'
 import type { Todo } from '@/types'
 import { format, parseISO } from 'date-fns'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 type Tab = 'today' | 'backlog' | 'completed'
 
@@ -22,6 +23,7 @@ export default function TasksPage() {
   const [input, setInput] = useState('')
   const [priority, setPriority] = useState<Todo['priority']>('normal')
   const [adding, setAdding] = useState(false)
+  const [confirm, setConfirm] = useState<{ open: boolean; id?: string }>({ open: false })
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -45,7 +47,7 @@ export default function TasksPage() {
       const todo = await addTodo({ title: input.trim(), priority, list: targetList, status: 'pending' })
       setTodos(prev => [todo, ...prev])
       setInput('')
-      toast.success(`Added to ${targetList === 'today' ? "Today" : "Backlog"}`)
+      toast.success(`Added to ${targetList === 'today' ? 'Today' : 'Backlog'}`)
     } catch { toast.error('Failed to add') }
     finally { setAdding(false) }
   }
@@ -56,9 +58,14 @@ export default function TasksPage() {
     toast.success('Done! 🎉')
   }
 
-  const handleDelete = async (id: string) => {
-    await deleteTodo(id)
-    setTodos(prev => prev.filter(t => t.id !== id))
+  const confirmDelete = (id: string) => setConfirm({ open: true, id })
+
+  const handleDelete = async () => {
+    if (!confirm.id) return
+    await deleteTodo(confirm.id)
+    setTodos(prev => prev.filter(t => t.id !== confirm.id))
+    setConfirm({ open: false })
+    toast.success('Deleted')
   }
 
   const handleMove = async (todo: Todo, to: 'today' | 'backlog') => {
@@ -104,29 +111,27 @@ export default function TasksPage() {
             {t.label}
             {t.count > 0 && (
               <span style={{
-                fontSize: 10, fontWeight: 700, minWidth: 16, height: 16, borderRadius: 8,
+                fontSize: 10, fontWeight: 700, minWidth: 16, height: 16, borderRadius: 8, padding: '0 4px',
                 background: tab === t.id ? 'var(--accent)' : 'var(--bg-3)',
                 color: tab === t.id ? '#fff' : 'var(--text-3)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>{t.count}</span>
             )}
           </button>
         ))}
       </div>
 
-      {/* Add input (not shown in completed tab) */}
+      {/* Add input */}
       {tab !== 'completed' && (
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {/* Priority picker */}
           <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
             {(['low', 'normal', 'high'] as const).map(p => (
-              <button key={p} onClick={() => setPriority(p)} title={p}
+              <button key={p} onClick={() => setPriority(p)} title={`${p} priority`}
                 style={{
                   width: 28, height: 36, borderRadius: 8, border: 'none', cursor: 'default',
                   background: priority === p ? `color-mix(in srgb, ${PRIORITY_COLOR[p]} 15%, transparent)` : 'var(--bg-2)',
                   color: priority === p ? PRIORITY_COLOR[p] : 'var(--text-3)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  transition: 'all 0.12s ease',
                 }}>
                 <Flag size={11} strokeWidth={priority === p ? 2.5 : 1.8} />
               </button>
@@ -137,11 +142,10 @@ export default function TasksPage() {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleAdd()}
-            placeholder={tab === 'today' ? "What needs to get done today?" : "Dump a thought or task…"}
+            placeholder={tab === 'today' ? 'What needs to get done today?' : 'Dump a thought or task…'}
             style={{
               flex: 1, height: 36, borderRadius: 'var(--r)', border: '1px solid var(--border)',
               padding: '0 12px', fontSize: 13, background: 'var(--surface)', color: 'var(--text-1)',
-              outline: 'none', transition: 'border-color 0.15s',
             }}
             onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
             onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
@@ -150,7 +154,7 @@ export default function TasksPage() {
             style={{
               width: 36, height: 36, borderRadius: 'var(--r)', background: 'var(--accent)', border: 'none',
               cursor: 'default', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0, opacity: !input.trim() ? 0.4 : 1, transition: 'opacity 0.15s',
+              flexShrink: 0, opacity: !input.trim() ? 0.4 : 1,
             }}>
             <Plus size={14} />
           </button>
@@ -158,7 +162,7 @@ export default function TasksPage() {
       )}
 
       {/* Task list */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {currentList.length === 0 ? (
           <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-3)' }}>
             <p style={{ fontSize: 28, marginBottom: 8 }}>
@@ -175,12 +179,22 @@ export default function TasksPage() {
           currentList.map((todo, i) => (
             <TodoRow key={todo.id} todo={todo} tab={tab} index={i}
               onComplete={() => handleComplete(todo)}
-              onDelete={() => handleDelete(todo.id!)}
+              onDelete={() => confirmDelete(todo.id!)}
               onMove={to => handleMove(todo, to)}
             />
           ))
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirm.open}
+        title="Delete task?"
+        message="This task will be permanently removed and cannot be recovered."
+        confirmLabel="Delete"
+        danger
+        onConfirm={handleDelete}
+        onCancel={() => setConfirm({ open: false })}
+      />
     </div>
   )
 }
@@ -198,14 +212,14 @@ function TodoRow({ todo, tab, index, onComplete, onDelete, onMove }: {
       onMouseLeave={() => setHovered(false)}
       style={{
         display: 'flex', alignItems: 'center', gap: 10,
-        padding: '10px 12px', borderRadius: 'var(--r)',
+        padding: '10px 10px', borderRadius: 'var(--r)',
         background: hovered ? 'var(--bg-2)' : 'transparent',
         border: '1px solid transparent',
         borderColor: hovered ? 'var(--border-2)' : 'transparent',
         transition: 'all 0.12s ease',
-        animation: `fade-up 0.18s ${index * 0.03}s ease both`,
+        animation: `fade-up 0.16s ${index * 0.025}s ease both`,
       }}>
-      {/* Check / Status */}
+      {/* Check circle */}
       {done ? (
         <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           <Check size={11} color="white" strokeWidth={2.5} />
@@ -215,26 +229,25 @@ function TodoRow({ todo, tab, index, onComplete, onDelete, onMove }: {
           style={{
             width: 20, height: 20, borderRadius: '50%', border: `1.5px solid ${PRIORITY_COLOR[todo.priority]}`,
             background: 'transparent', cursor: 'default', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            transition: 'background 0.12s',
           }}
-          onMouseEnter={e => (e.currentTarget.style.background = `color-mix(in srgb, ${PRIORITY_COLOR[todo.priority]} 15%, transparent)`)}
+          onMouseEnter={e => (e.currentTarget.style.background = `color-mix(in srgb, ${PRIORITY_COLOR[todo.priority]} 12%, transparent)`)}
           onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
         />
       )}
 
       {/* Priority dot */}
-      <div style={{ width: 6, height: 6, borderRadius: '50%', background: PRIORITY_COLOR[todo.priority], flexShrink: 0, opacity: done ? 0.3 : 1 }} />
+      <div style={{ width: 5, height: 5, borderRadius: '50%', background: PRIORITY_COLOR[todo.priority], flexShrink: 0, opacity: done ? 0.25 : 1 }} />
 
       {/* Content */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <p style={{
           fontSize: 14, fontWeight: 500, color: done ? 'var(--text-3)' : 'var(--text-1)',
-          textDecoration: done ? 'line-through' : 'none', transition: 'color 0.2s',
+          textDecoration: done ? 'line-through' : 'none',
           overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
         }}>{todo.title}</p>
         {done && todo.completed_at && (
-          <p className="footnote" style={{ marginTop: 1 }}>
-            <Clock size={9} style={{ display: 'inline', marginRight: 3 }} />
+          <p className="footnote" style={{ marginTop: 1, display: 'flex', alignItems: 'center', gap: 3 }}>
+            <Clock size={9} />
             {format(parseISO(todo.completed_at), 'MMM d, h:mm a')}
           </p>
         )}
@@ -246,18 +259,14 @@ function TodoRow({ todo, tab, index, onComplete, onDelete, onMove }: {
       </div>
 
       {/* Actions */}
-      {hovered && !done && (
+      {hovered && (
         <div style={{ display: 'flex', gap: 2, flexShrink: 0, animation: 'fade-up 0.1s ease both' }}>
-          {tab === 'today' ? (
+          {!done && tab === 'today' && (
             <ActionBtn icon={<ArrowDownToLine size={11} />} label="Move to Backlog" onClick={() => onMove('backlog')} />
-          ) : tab === 'backlog' ? (
+          )}
+          {!done && tab === 'backlog' && (
             <ActionBtn icon={<ArrowUpToLine size={11} />} label="Move to Today" onClick={() => onMove('today')} />
-          ) : null}
-          <ActionBtn icon={<Trash2 size={11} />} label="Delete" onClick={onDelete} danger />
-        </div>
-      )}
-      {hovered && done && (
-        <div style={{ display: 'flex', gap: 2, flexShrink: 0, animation: 'fade-up 0.1s ease both' }}>
+          )}
           <ActionBtn icon={<Trash2 size={11} />} label="Delete" onClick={onDelete} danger />
         </div>
       )}
@@ -272,7 +281,6 @@ function ActionBtn({ icon, label, onClick, danger }: { icon: React.ReactNode; la
         width: 26, height: 26, borderRadius: 6, border: 'none', cursor: 'default',
         background: 'var(--bg-3)', color: danger ? 'var(--error)' : 'var(--text-2)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        transition: 'all 0.12s',
       }}
       onMouseEnter={e => (e.currentTarget.style.background = danger ? 'color-mix(in srgb, var(--error) 12%, transparent)' : 'var(--bg-2)')}
       onMouseLeave={e => (e.currentTarget.style.background = 'var(--bg-3)')}>

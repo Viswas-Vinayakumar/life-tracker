@@ -10,6 +10,7 @@ import { calculateScore } from '@/lib/scoring'
 import { getLog, upsertLog, getFoodEntries, addFoodEntry, deleteFoodEntry, parseFood } from '@/lib/db'
 import { isOllamaRunning } from '@/lib/ollama'
 import type { DailyLog, FoodEntry } from '@/types'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 const TODAY = format(new Date(), 'yyyy-MM-dd')
 const H = new Date().getHours()
@@ -28,6 +29,7 @@ export default function TodayPage() {
   const [showVitals, setShowVitals] = useState(false)
   const [showFood, setShowFood] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [confirmFood, setConfirmFood] = useState<{ open: boolean; id?: string }>({ open: false })
   const debounce = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   const score = calculateScore(log, food)
@@ -74,9 +76,11 @@ export default function TodayPage() {
     } finally { setParsing(false) }
   }
 
-  const handleRemoveFood = async (id: string) => {
-    await deleteFoodEntry(id)
-    setFood(prev => prev.filter(e => e.id !== id))
+  const handleRemoveFood = async () => {
+    if (!confirmFood.id) return
+    await deleteFoodEntry(confirmFood.id)
+    setFood(prev => prev.filter(e => e.id !== confirmFood.id))
+    setConfirmFood({ open: false })
   }
 
   const foodTotals = food.reduce((a, e) => ({
@@ -274,7 +278,7 @@ export default function TodayPage() {
                   <p style={{ fontSize: 13, fontWeight: 600, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{e.food_name ?? e.raw_input}</p>
                   <p className="footnote">{e.calories} kcal · {e.protein}g P · {e.carbs}g C · {e.fat}g F</p>
                 </div>
-                <button onClick={() => handleRemoveFood(e.id!)} style={{ padding: 5, background: 'none', border: 'none', cursor: 'default', color: 'var(--text-3)', opacity: 0, transition: 'opacity 0.15s' }}
+                <button onClick={() => setConfirmFood({ open: true, id: e.id! })} style={{ padding: 5, background: 'none', border: 'none', cursor: 'default', color: 'var(--text-3)', opacity: 0, transition: 'opacity 0.15s' }}
                   onMouseEnter={el => (el.currentTarget.style.opacity = '1')}
                   onMouseLeave={el => (el.currentTarget.style.opacity = '0')}>
                   <X size={13} />
@@ -313,6 +317,16 @@ export default function TodayPage() {
           </div>
         )}
       </section>
+
+      <ConfirmDialog
+        open={confirmFood.open}
+        title="Remove food entry?"
+        message="This food entry will be removed from today's log."
+        confirmLabel="Remove"
+        danger
+        onConfirm={handleRemoveFood}
+        onCancel={() => setConfirmFood({ open: false })}
+      />
     </div>
   )
 }
