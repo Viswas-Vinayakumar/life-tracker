@@ -1,16 +1,15 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { format, parseISO, subDays } from 'date-fns'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts'
-import { Flame, TrendingUp, Target, Trophy, Sparkles, RefreshCw, Lightbulb, Brain, Dumbbell, BookOpen, Droplets, Moon, Apple } from 'lucide-react'
+import { Flame, TrendingUp, Target, Trophy, Dumbbell, BookOpen, Droplets, Moon, Apple } from 'lucide-react'
 import type { DailyLog, FoodEntry } from '@/types'
 import { getScoreColor, getScoreLabel } from '@/lib/scoring'
-import { getLogs, getFoodEntries, getFoodEntriesRange } from '@/lib/db'
-import { getLifeSummary, isOllamaRunning, type LifeSummary } from '@/lib/ollama'
+import { getLogs, getFoodEntriesRange } from '@/lib/db'
 import { format as formatDate } from 'date-fns'
 
 const PIE_COLORS = ['#a78bfa', '#38bdf8', '#34d399', '#fbbf24', '#f87171']
@@ -31,16 +30,6 @@ function ChartTip({ active, payload, label }: { active?: boolean; payload?: { va
       {payload.map((p, i) => <p key={i} style={{ fontWeight: 600, color: p.color ?? 'var(--text-1)' }}>{p.name ? `${p.name}: ` : ''}{p.value}</p>)}
     </div>
   )
-}
-
-const LABEL_COLOR: Record<LifeSummary['label'], string> = {
-  peak: 'var(--warning)', strong: 'var(--success)', growing: 'var(--accent)', needs_work: 'var(--warning)',
-}
-const LABEL_BG: Record<LifeSummary['label'], string> = {
-  peak: 'color-mix(in srgb, var(--warning) 12%, transparent)',
-  strong: 'color-mix(in srgb, var(--success) 12%, transparent)',
-  growing: 'color-mix(in srgb, var(--accent) 12%, transparent)',
-  needs_work: 'color-mix(in srgb, var(--warning) 12%, transparent)',
 }
 
 function macroScore(calories: number, protein: number, carbs: number, fat: number, fiber: number): number {
@@ -71,50 +60,16 @@ function HealthScoreRing({ score, size = 80, strokeWidth = 7, color }: { score: 
 
 export default function DashboardPage() {
   const [logs, setLogs] = useState<DailyLog[]>([])
-  const [food, setFood] = useState<FoodEntry[]>([])
   const [food30, setFood30] = useState<FoodEntry[]>([])
   const [loading, setLoading] = useState(true)
-  const [summary, setSummary] = useState<LifeSummary | null>(null)
-  const [summaryLoading, setSummaryLoading] = useState(false)
-  const [ollamaOk, setOllamaOk] = useState<boolean | null>(null)
-  const [summaryError, setSummaryError] = useState(false)
 
   useEffect(() => {
     const end = TODAY
     const start = formatDate(subDays(new Date(), 29), 'yyyy-MM-dd')
-    Promise.all([getLogs(30), getFoodEntries(TODAY), getFoodEntriesRange(start, end)])
-      .then(([l, f, f30]) => { setLogs(l); setFood(f); setFood30(f30); setLoading(false) })
+    Promise.all([getLogs(30), getFoodEntriesRange(start, end)])
+      .then(([l, f30]) => { setLogs(l); setFood30(f30); setLoading(false) })
       .catch(() => setLoading(false))
-    isOllamaRunning().then(setOllamaOk)
   }, [])
-
-  const loadSummary = useCallback(async (force = false) => {
-    if (!force) {
-      const cached = localStorage.getItem('lifeos_ai_summary')
-      if (cached) {
-        try {
-          const { data, ts } = JSON.parse(cached)
-          if (Date.now() - ts < 4 * 60 * 60 * 1000) { setSummary(data); return }
-        } catch { /* ignore */ }
-      }
-    }
-    setSummaryLoading(true)
-    setSummaryError(false)
-    try {
-      const result = await getLifeSummary(logs, food)
-      if (result) {
-        setSummary(result)
-        localStorage.setItem('lifeos_ai_summary', JSON.stringify({ data: result, ts: Date.now() }))
-      } else {
-        setSummaryError(true)
-      }
-    } catch { setSummaryError(true) }
-    finally { setSummaryLoading(false) }
-  }, [logs, food])
-
-  useEffect(() => {
-    if (logs.length >= 2) loadSummary()
-  }, [logs]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 12, color: 'var(--text-3)' }}>
@@ -179,21 +134,6 @@ export default function DashboardPage() {
   const avgFiber = daysWithFood ? Math.round(sum('fiber') / daysWithFood) : 0
   const nutritionScore = macroScore(avgCal, avgProtein, avgCarbs, avgFat, avgFiber)
 
-  const macroData = [
-    { name: 'Protein', value: avgProtein, goal: GOALS.protein, color: '#a78bfa' },
-    { name: 'Carbs', value: avgCarbs, goal: GOALS.carbs, color: '#38bdf8' },
-    { name: 'Fat', value: avgFat, goal: GOALS.fat, color: '#fbbf24' },
-    { name: 'Fiber', value: avgFiber, goal: GOALS.fiber, color: '#34d399' },
-  ]
-
-  // Calorie trend chart (one point per logged day with food)
-  const calTrendData = last30
-    .filter(l => foodByDate[l.date])
-    .map(l => ({
-      date: format(parseISO(l.date), 'MMM d'),
-      cal: Math.round(foodByDate[l.date].reduce((s, f) => s + (f.calories ?? 0), 0)),
-    }))
-
   // ── Overall Health Score ──
   const gymRate = logs.length ? gymDays / logs.length : 0
   const studyRate = logs.length ? studyDays / logs.length : 0
@@ -235,7 +175,7 @@ export default function DashboardPage() {
           <h1 className="title-lg">Stats</h1>
           <p className="footnote" style={{ marginTop: 4 }}>Last 30 days · {logs.length} days logged</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderRadius: 'var(--r)', background: pct >= 70 ? LABEL_BG['strong'] : LABEL_BG['growing'] }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderRadius: 'var(--r)', background: `color-mix(in srgb, ${getScoreColor(avgScore)} 12%, transparent)` }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: getScoreColor(avgScore) }}>Level {level} · {levelLabels[Math.min(level - 1, 9)]}</span>
         </div>
       </div>
@@ -281,64 +221,6 @@ export default function DashboardPage() {
           </div>
         </div>
       </section>
-
-      {/* ── AI Summary Card ──────────────────────────────── */}
-      <div className="card" style={{ padding: '18px 20px', borderColor: summary ? `color-mix(in srgb, ${LABEL_COLOR[summary.label]} 30%, transparent)` : 'var(--border-2)', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, var(--violet), var(--cyan), var(--accent))', opacity: 0.7 }} />
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: summary ? 12 : 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 8, background: 'color-mix(in srgb, var(--violet) 15%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Brain size={14} color="var(--violet)" />
-            </div>
-            <div>
-              <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-1)' }}>AI Life Analysis</p>
-              <p className="footnote">{ollamaOk ? 'Powered by Ollama · local & private' : 'Requires Ollama'}</p>
-            </div>
-          </div>
-          <button onClick={() => loadSummary(true)} disabled={summaryLoading || !ollamaOk || logs.length < 2}
-            style={{ width: 28, height: 28, borderRadius: 7, border: 'none', background: 'var(--bg-2)', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-2)', opacity: !ollamaOk ? 0.4 : 1 }}
-            title="Refresh AI summary">
-            <RefreshCw size={12} style={{ animation: summaryLoading ? 'spin 1s linear infinite' : 'none' }} />
-          </button>
-        </div>
-        {summaryLoading && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-3)', padding: '8px 0' }}>
-            <div style={{ width: 14, height: 14, borderRadius: '50%', border: '2px solid var(--violet)', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite' }} />
-            <span style={{ fontSize: 13 }}>Analysing your patterns…</span>
-          </div>
-        )}
-        {!summaryLoading && summary && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <p style={{ fontSize: 16, fontWeight: 700, color: LABEL_COLOR[summary.label], lineHeight: 1.3 }}>{summary.headline}</p>
-            <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>{summary.insight}</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <div style={{ padding: '10px 12px', borderRadius: 'var(--r)', background: 'var(--bg-2)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
-                  <Sparkles size={11} color="var(--cyan)" />
-                  <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--cyan)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pattern</span>
-                </div>
-                <p style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>{summary.pattern}</p>
-              </div>
-              <div style={{ padding: '10px 12px', borderRadius: 'var(--r)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
-                  <Lightbulb size={11} color="var(--accent)" />
-                  <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Tip</span>
-                </div>
-                <p style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>{summary.suggestion}</p>
-              </div>
-            </div>
-          </div>
-        )}
-        {!summaryLoading && !summary && !summaryError && logs.length < 2 && (
-          <p style={{ fontSize: 13, color: 'var(--text-3)', padding: '4px 0' }}>Log at least 2 days to get AI insights.</p>
-        )}
-        {!summaryLoading && summaryError && (
-          <p style={{ fontSize: 13, color: 'var(--text-3)', padding: '4px 0' }}>
-            {ollamaOk ? 'AI analysis failed. Try refreshing.' : 'Install Ollama: '}
-            {!ollamaOk && <code style={{ fontSize: 11, color: 'var(--text-2)' }}>brew install ollama && ollama pull llama3.2:3b</code>}
-          </p>
-        )}
-      </div>
 
       {/* ── Top stat cards ─────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
@@ -386,103 +268,6 @@ export default function DashboardPage() {
         ) : (
           <div className="card" style={{ padding: '48px 0', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
             No data yet — log your first day!
-          </div>
-        )}
-      </section>
-
-      {/* ── Nutrition Dashboard ────────────────────────── */}
-      <section>
-        <p className="section-label">Nutrition — 30-Day Avg</p>
-        {daysWithFood === 0 ? (
-          <div className="card" style={{ padding: '32px 0', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
-            No food logged yet — add meals in Today
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {/* Calorie row */}
-            <div className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 20 }}>
-              <div>
-                <p className="footnote" style={{ marginBottom: 2 }}>🔥 Daily Calories</p>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                  <span className="tabular-nums" style={{ fontSize: 28, fontWeight: 800, color: avgCal > GOALS.calories * 1.2 ? 'var(--error)' : avgCal > GOALS.calories ? 'var(--warning)' : 'var(--success)' }}>{avgCal}</span>
-                  <span style={{ fontSize: 12, color: 'var(--text-3)' }}>/ {GOALS.calories} goal</span>
-                </div>
-              </div>
-              <div style={{ flex: 1, height: 6, background: 'var(--bg-3)', borderRadius: 4, overflow: 'hidden' }}>
-                <div style={{
-                  height: '100%',
-                  width: `${Math.min((avgCal / GOALS.calories) * 100, 100)}%`,
-                  background: avgCal > GOALS.calories * 1.2 ? 'var(--error)' : avgCal > GOALS.calories ? 'var(--warning)' : 'var(--success)',
-                  borderRadius: 4, transition: 'width 1s cubic-bezier(0.34,1.2,0.64,1)',
-                }} />
-              </div>
-              <span style={{ fontSize: 11, color: 'var(--text-3)', flexShrink: 0 }}>{daysWithFood}d tracked</span>
-            </div>
-
-            {/* Macros grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-              {macroData.map(m => {
-                const pctOfGoal = Math.round((m.value / m.goal) * 100)
-                return (
-                  <div key={m.name} className="card" style={{ padding: '12px 14px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: m.color, flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-2)' }}>{m.name}</span>
-                    </div>
-                    <p className="tabular-nums" style={{ fontSize: 20, fontWeight: 700, color: m.color, marginBottom: 6 }}>
-                      {m.value}<span style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-3)' }}>g</span>
-                    </p>
-                    <div style={{ height: 3, background: 'var(--bg-3)', borderRadius: 2, overflow: 'hidden', marginBottom: 4 }}>
-                      <div style={{ height: '100%', width: `${Math.min(pctOfGoal, 100)}%`, background: m.color, borderRadius: 2, transition: 'width 1s ease' }} />
-                    </div>
-                    <p style={{ fontSize: 9, color: 'var(--text-3)' }}>{pctOfGoal}% of {m.goal}g goal</p>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Calorie trend + macro pie */}
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
-              {calTrendData.length > 1 && (
-                <div className="card" style={{ padding: '14px 14px 10px' }}>
-                  <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Calorie Trend</p>
-                  <ResponsiveContainer width="100%" height={100}>
-                    <AreaChart data={calTrendData} margin={{ top: 2, right: 2, bottom: 0, left: -20 }}>
-                      <defs>
-                        <linearGradient id="calg" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#34d399" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#34d399" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border-2)" vertical={false} />
-                      <XAxis dataKey="date" tick={{ fontSize: 8, fill: 'var(--text-3)' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                      <YAxis tick={{ fontSize: 8, fill: 'var(--text-3)' }} tickLine={false} axisLine={false} />
-                      <Tooltip content={<ChartTip />} />
-                      <Area type="monotone" dataKey="cal" name="kcal" stroke="#34d399" strokeWidth={1.5} fill="url(#calg)" dot={false} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-              <div className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 4, justifyContent: 'center' }}>
-                <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Macros</p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <PieChart width={80} height={80}>
-                    <Pie data={macroData.filter(m => m.value > 0)} cx={36} cy={36} innerRadius={20} outerRadius={36} dataKey="value" strokeWidth={0}>
-                      {macroData.map((m, i) => <Cell key={i} fill={m.color} />)}
-                    </Pie>
-                  </PieChart>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {macroData.map(m => (
-                      <div key={m.name} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: m.color, flexShrink: 0 }} />
-                        <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{m.name}</span>
-                        <span style={{ fontSize: 10, fontWeight: 700, marginLeft: 'auto' }}>{m.value}g</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         )}
       </section>

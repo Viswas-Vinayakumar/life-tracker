@@ -212,7 +212,7 @@ export default function FoodPage() {
   const calLeft  = GOALS.calories - t.cal
 
   return (
-    <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 700 }}>
+    <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 1050 }}>
 
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', animation: 'fade-up 0.18s ease both' }}>
@@ -224,7 +224,7 @@ export default function FoodPage() {
           background: ollamaOk ? 'color-mix(in srgb, var(--success) 10%, transparent)' : 'var(--bg-2)',
           border: `1px solid ${ollamaOk ? 'color-mix(in srgb, var(--success) 30%, transparent)' : 'var(--border-2)'}`,
         }}>
-          <div style={{ width: 6, height: 6, borderRadius: '50%', background: ollamaOk ? 'var(--success)' : 'var(--text-3)', animation: ollamaOk ? 'none' : 'none' }} />
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: ollamaOk ? 'var(--success)' : 'var(--text-3)' }} />
           <span style={{ fontSize: 10, fontWeight: 600, color: ollamaOk ? 'var(--success)' : 'var(--text-3)' }}>
             {ollamaOk ? 'Ollama AI' : 'No AI'}
           </span>
@@ -244,7 +244,7 @@ export default function FoodPage() {
           </select>
           <input
             value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()}
-            placeholder="e.g. 2 scrambled eggs, oat milk latte, grilled chicken…" disabled={parsing}
+            placeholder="e.g. Magerquark mit Honig, Hähnchenbrust mit Reis, 2 Eier…" disabled={parsing}
             style={{ flex: 1, height: 38, borderRadius: 9, border: '1px solid var(--border)', padding: '0 12px', fontSize: 13, background: 'var(--bg-2)', color: 'var(--text-1)', transition: 'border-color 0.15s' }}
             onFocus={e => (e.target.style.borderColor = 'var(--accent)')}
             onBlur={e => (e.target.style.borderColor = 'var(--border)')}
@@ -263,142 +263,112 @@ export default function FoodPage() {
         )}
       </div>
 
-      {/* ── Calorie overview ── */}
+      {/* ── 2-column: macros left, AI summary right ── */}
       {food.length > 0 && (
-        <div className="card" style={{ padding: '18px 20px', animation: 'fade-up 0.22s 0.07s ease both', position: 'relative', overflow: 'hidden' }}>
-          {/* Subtle gradient top accent */}
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, ${calColor}, transparent)` }} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 14, alignItems: 'start', animation: 'fade-up 0.22s 0.07s ease both' }}>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <Flame size={15} color={calColor} />
-              <span style={{ fontSize: 13, fontWeight: 700 }}>Calories Today</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
-              <span className="tabular-nums" style={{ fontSize: 26, fontWeight: 900, color: calColor, letterSpacing: '-0.5px' }}>
-                {t.cal.toLocaleString()}
-              </span>
-              <span style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 400 }}>/ {GOALS.calories.toLocaleString()} kcal</span>
-            </div>
-          </div>
-
-          <AnimatedBar pct={calPct} color={calColor} height={8} />
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 7, marginBottom: 16 }}>
-            <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{Math.round(calPct * 100)}% of daily goal</span>
-            <span style={{ fontSize: 10, color: calLeft > 0 ? 'var(--text-3)' : 'var(--error)', fontWeight: calLeft <= 0 ? 700 : 400 }}>
-              {calLeft > 0 ? `${calLeft.toLocaleString()} kcal remaining` : `${Math.abs(calLeft).toLocaleString()} kcal over goal`}
-            </span>
-          </div>
-
-          {/* Calorie distribution by macro */}
-          <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
-            Calorie distribution
-          </p>
-          <CalorieDistBar protein={t.protein} carbs={t.carbs} fat={t.fat} />
-        </div>
-      )}
-
-      {/* ── Macro breakdown ── */}
-      {food.length > 0 && (
-        <div className="card" style={{ padding: '16px 18px', animation: 'fade-up 0.22s 0.1s ease both' }}>
-          <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 14 }}>
-            Macros & Nutrients
-          </p>
+          {/* LEFT: Calories + Macros */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <MacroRow label="Protein"     emoji="🥩" value={t.protein} goal={GOALS.protein} color="#a78bfa" delay={0}    />
-            <MacroRow label="Carbohydrates" emoji="🌾" value={t.carbs}   goal={GOALS.carbs}   color="#38bdf8" delay={0.04} />
-            <MacroRow label="Fat"         emoji="🥑" value={t.fat}     goal={GOALS.fat}     color="#fbbf24" delay={0.08} />
-            <MacroRow label="Fiber"       emoji="🌿" value={t.fiber}   goal={GOALS.fiber}   color="#34d399" delay={0.12} />
-          </div>
-          <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border-2)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {[
-              { label: 'Protein kcal',  value: Math.round(t.protein * 4), color: '#a78bfa' },
-              { label: 'Carbs kcal',    value: Math.round(t.carbs * 4),   color: '#38bdf8' },
-              { label: 'Fat kcal',      value: Math.round(t.fat * 9),     color: '#fbbf24' },
-            ].map(m => (
-              <div key={m.label} style={{ padding: '4px 10px', borderRadius: 20, background: `color-mix(in srgb, ${m.color} 10%, transparent)`, border: `1px solid color-mix(in srgb, ${m.color} 20%, transparent)` }}>
-                <span style={{ fontSize: 10, color: m.color, fontWeight: 700 }}>{m.value} kcal</span>
-                <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 4 }}>{m.label.split(' ')[0]}</span>
+            {/* Calorie card */}
+            <div className="card" style={{ padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, ${calColor}, transparent)` }} />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Flame size={14} color={calColor} />
+                  <span style={{ fontSize: 12, fontWeight: 700 }}>Calories Today</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
+                  <span className="tabular-nums" style={{ fontSize: 24, fontWeight: 900, color: calColor, letterSpacing: '-0.5px' }}>{t.cal.toLocaleString()}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-3)' }}>/ {GOALS.calories.toLocaleString()}</span>
+                </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── AI Nutrition Summary ── */}
-      {food.length > 0 && (
-        <div className="card" style={{
-          padding: '16px 18px', animation: 'fade-up 0.22s 0.13s ease both', position: 'relative', overflow: 'hidden',
-          borderColor: aiSummary ? `color-mix(in srgb, ${RATING_COLOR[aiSummary.rating]} 25%, transparent)` : 'var(--border-2)',
-        }}>
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, var(--success), var(--cyan))', opacity: 0.6 }} />
-
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: aiSummary ? 12 : 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 26, height: 26, borderRadius: 7, background: 'color-mix(in srgb, var(--success) 12%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Leaf size={13} color="var(--success)" />
+              <AnimatedBar pct={calPct} color={calColor} height={7} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, marginBottom: 14 }}>
+                <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{Math.round(calPct * 100)}% of goal</span>
+                <span style={{ fontSize: 10, color: calLeft > 0 ? 'var(--text-3)' : 'var(--error)', fontWeight: calLeft <= 0 ? 700 : 400 }}>
+                  {calLeft > 0 ? `${calLeft.toLocaleString()} remaining` : `${Math.abs(calLeft).toLocaleString()} over`}
+                </span>
               </div>
-              <div>
-                <p style={{ fontSize: 12, fontWeight: 700 }}>Nutrition AI</p>
-                <p className="footnote">{ollamaOk ? 'Local · private · powered by Ollama' : 'Requires Ollama'}</p>
+              <p style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Calorie split</p>
+              <CalorieDistBar protein={t.protein} carbs={t.carbs} fat={t.fat} />
+            </div>
+
+            {/* Macro rows */}
+            <div className="card" style={{ padding: '14px 16px' }}>
+              <p style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>Macros & Nutrients</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+                <MacroRow label="Protein"       emoji="🥩" value={t.protein} goal={GOALS.protein} color="#a78bfa" delay={0}    />
+                <MacroRow label="Carbohydrates" emoji="🌾" value={t.carbs}   goal={GOALS.carbs}   color="#38bdf8" delay={0.04} />
+                <MacroRow label="Fat"           emoji="🥑" value={t.fat}     goal={GOALS.fat}     color="#fbbf24" delay={0.08} />
+                <MacroRow label="Fiber"         emoji="🌿" value={t.fiber}   goal={GOALS.fiber}   color="#34d399" delay={0.12} />
               </div>
             </div>
-            <button onClick={() => loadAiSummary(food, true)} disabled={aiLoading || !ollamaOk}
-              title="Refresh nutrition summary"
-              style={{ width: 28, height: 28, borderRadius: 7, border: 'none', background: 'var(--bg-2)', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-2)', opacity: !ollamaOk ? 0.35 : 1 }}>
-              <RefreshCw size={11} style={{ animation: aiLoading ? 'spin 1s linear infinite' : 'none' }} />
-            </button>
           </div>
 
-          {aiLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', padding: '6px 0' }}>
-              <div style={{ width: 13, height: 13, borderRadius: '50%', border: '2px solid var(--success)', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite' }} />
-              <span style={{ fontSize: 12 }}>Analysing your nutrition…</span>
-            </div>
-          )}
+          {/* RIGHT: AI Nutrition Summary */}
+          <div className="card" style={{
+            padding: '16px 18px', position: 'relative', overflow: 'hidden', height: '100%',
+            borderColor: aiSummary ? `color-mix(in srgb, ${RATING_COLOR[aiSummary.rating]} 25%, transparent)` : 'var(--border-2)',
+          }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, var(--success), var(--cyan))', opacity: 0.7 }} />
 
-          {!aiLoading && aiSummary && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, animation: 'fade-up 0.2s ease both' }}>
-              {/* Rating + headline */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{
-                  padding: '3px 9px', borderRadius: 20, fontSize: 10, fontWeight: 800,
-                  background: RATING_BG[aiSummary.rating],
-                  color: RATING_COLOR[aiSummary.rating],
-                  textTransform: 'uppercase', letterSpacing: '0.07em',
-                }}>{aiSummary.rating}</span>
-                <p style={{ fontSize: 14, fontWeight: 700, color: RATING_COLOR[aiSummary.rating], lineHeight: 1.3 }}>
-                  {aiSummary.headline}
-                </p>
+                <div style={{ width: 26, height: 26, borderRadius: 7, background: 'color-mix(in srgb, var(--success) 12%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Leaf size={13} color="var(--success)" />
+                </div>
+                <div>
+                  <p style={{ fontSize: 12, fontWeight: 700 }}>Nutrition AI</p>
+                  <p className="footnote">Personal coach · local AI</p>
+                </div>
               </div>
-              {/* Insight */}
-              <p style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.65 }}>{aiSummary.insight}</p>
-              {/* Highlight + tip */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--bg-2)' }}>
+              <button onClick={() => loadAiSummary(food, true)} disabled={aiLoading || !ollamaOk}
+                title="Refresh" style={{ width: 26, height: 26, borderRadius: 7, border: 'none', background: 'var(--bg-2)', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-2)', opacity: !ollamaOk ? 0.35 : 1 }}>
+                <RefreshCw size={11} style={{ animation: aiLoading ? 'spin 1s linear infinite' : 'none' }} />
+              </button>
+            </div>
+
+            {aiLoading && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '32px 0', color: 'var(--text-3)' }}>
+                <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid var(--success)', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite' }} />
+                <span style={{ fontSize: 12 }}>Analysing nutrition…</span>
+              </div>
+            )}
+
+            {!aiLoading && aiSummary && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'fade-up 0.2s ease both' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 10, fontWeight: 800, background: RATING_BG[aiSummary.rating], color: RATING_COLOR[aiSummary.rating], textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                    {aiSummary.rating}
+                  </span>
+                </div>
+                <p style={{ fontSize: 15, fontWeight: 700, color: RATING_COLOR[aiSummary.rating], lineHeight: 1.35 }}>{aiSummary.headline}</p>
+                <p style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.7 }}>{aiSummary.insight}</p>
+                <div style={{ height: 1, background: 'var(--border-2)' }} />
+                <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
                     <Sparkles size={10} color="var(--warning)" />
-                    <span style={{ fontSize: 9, fontWeight: 800, color: 'var(--warning)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Best choice</span>
+                    <span style={{ fontSize: 9, fontWeight: 800, color: 'var(--warning)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Best choice today</span>
                   </div>
-                  <p style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5 }}>{aiSummary.highlight}</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.55 }}>{aiSummary.highlight}</p>
                 </div>
-                <div style={{ padding: '10px 12px', borderRadius: 10, background: 'color-mix(in srgb, var(--success) 7%, transparent)' }}>
+                <div style={{ padding: '10px 12px', borderRadius: 10, background: 'color-mix(in srgb, var(--success) 7%, transparent)', border: '1px solid color-mix(in srgb, var(--success) 18%, transparent)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
                     <ChevronRight size={10} color="var(--success)" />
-                    <span style={{ fontSize: 9, fontWeight: 800, color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Tip</span>
+                    <span style={{ fontSize: 9, fontWeight: 800, color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Coach tip</span>
                   </div>
-                  <p style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5 }}>{aiSummary.tip}</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.55 }}>{aiSummary.tip}</p>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {!aiLoading && !aiSummary && (
-            <p style={{ fontSize: 12, color: 'var(--text-3)', padding: '4px 0' }}>
-              {ollamaOk ? 'Generating nutrition analysis…' : 'Install Ollama for AI nutrition insights.'}
-            </p>
-          )}
+            {!aiLoading && !aiSummary && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '28px 0', color: 'var(--text-3)', textAlign: 'center' }}>
+                <Leaf size={22} style={{ opacity: 0.3 }} />
+                <p style={{ fontSize: 12 }}>{ollamaOk ? 'Generating analysis…' : 'Install Ollama for AI coaching.'}</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

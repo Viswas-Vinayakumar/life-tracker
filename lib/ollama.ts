@@ -1,6 +1,8 @@
 // Local AI via Ollama — no tokens, no API keys, runs on your Mac
 // Install: brew install ollama && ollama pull llama3.2:3b
 import type { DailyLog, FoodEntry } from '@/types'
+import { getGermanFoodContext } from './germanFoods'
+import { getProfile, buildProfileContext } from './profile'
 
 const OLLAMA_BASE = 'http://127.0.0.1:11434'
 
@@ -42,6 +44,18 @@ export interface FoodNutrition {
 
 export async function parseFoodWithOllama(input: string): Promise<FoodNutrition> {
   const model = await getBestModel()
+  const profile = getProfile()
+  const profileCtx = buildProfileContext(profile)
+  const germanCtx = getGermanFoodContext()
+
+  const systemContext = [
+    profileCtx,
+    'The user lives in Germany and shops at REWE, ALDI, LIDL, NETTO, Penny.',
+    'Use German product sizes and realistic German portion sizes.',
+    'Be very accurate for common German grocery items (Quark, Vollkornbrot, Bratwurst, Schnitzel, Müsli, Joghurt, etc.).',
+    germanCtx,
+  ].filter(Boolean).join('\n\n')
+
   const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -50,13 +64,15 @@ export async function parseFoodWithOllama(input: string): Promise<FoodNutrition>
       model, stream: false, format: 'json',
       messages: [{
         role: 'user',
-        content: `You are a nutrition expert. Parse this food and return ONLY valid JSON (no markdown, no text before or after):
+        content: `${systemContext}
+
+You are a nutrition expert. Parse this food and return ONLY valid JSON (no markdown, no extra text):
 
 Food: "${input}"
 
 {"food_name":"string","calories":0,"protein":0,"carbs":0,"fat":0,"fiber":0,"sugar":0,"sodium_mg":0}
 
-Be realistic. Sum values if multiple foods.`,
+Be realistic. Use the German food reference above if applicable. Sum values if multiple foods described.`,
       }],
     }),
   })
@@ -123,11 +139,19 @@ export async function getFoodSummary(entries: FoodEntry[]): Promise<FoodSummary 
   const foods = entries.map(e => e.food_name ?? e.raw_input).join(', ')
 
   const model = await getBestModel()
-  const prompt = `You are a nutrition coach. Analyze today's food log and give a brief, personal summary.
+  const profile = getProfile()
+  const profileCtx = buildProfileContext(profile)
+  const calGoal = profile.weightKg && profile.heightCm && profile.age
+    ? `${Math.round(10 * profile.weightKg + 6.25 * profile.heightCm - 5 * profile.age + 5) * 1.55} kcal estimated TDEE`
+    : '2200 kcal default goal'
 
-TODAY'S FOOD: ${foods}
+  const prompt = `You are a personal nutrition coach and trainer. Analyze today's food log and give a brief, personal summary.
+
+${profileCtx}
+
+TODAY'S FOOD (Germany): ${foods}
 TOTALS: ${totalCal} kcal | ${totalProtein}g protein | ${totalCarbs}g carbs | ${totalFat}g fat | ${totalFiber}g fiber
-GOALS: 2200 kcal | 150g protein | 250g carbs | 70g fat | 30g fiber
+CALORIE GOAL: ${calGoal} | Protein goal: ${profile.weightKg ? Math.round(profile.weightKg * 1.8) + 'g' : '150g'}
 
 Respond ONLY with valid JSON, no markdown:
 {"headline":"one short punchy sentence about today's nutrition (max 10 words)","rating":"excellent|good|fair|poor","insight":"2 sentences about what stands out nutritionally today","tip":"one specific actionable tip for today or tomorrow","highlight":"the single best food choice they made today"}`
