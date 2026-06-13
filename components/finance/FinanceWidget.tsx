@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { FinancialEntry } from '@/types'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/types'
+import { addFinanceEntry, deleteFinanceEntry } from '@/lib/db'
 import { toast } from 'sonner'
 
 interface FinanceWidgetProps {
@@ -32,26 +33,23 @@ export default function FinanceWidget({ date, entries, onAdd, onRemove }: Financ
     if (!amount || isNaN(parseFloat(amount))) return
     setAdding(true)
     try {
-      const res = await fetch('/api/finance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, type, amount: parseFloat(amount), category, description: description || undefined }),
+      const entry = await addFinanceEntry({
+        date, type, amount: parseFloat(amount),
+        category, description: description || undefined,
       })
-      const entry = await res.json()
-      onAdd(entry)
-      setAmount('')
-      setDescription('')
-      setShowForm(false)
-      toast.success(`${type === 'income' ? 'Income' : 'Expense'} added: ₹${parseFloat(amount).toLocaleString()}`)
-    } catch {
-      toast.error('Failed to save')
-    } finally {
-      setAdding(false)
-    }
+      if (entry) {
+        onAdd(entry)
+        setAmount('')
+        setDescription('')
+        setShowForm(false)
+        toast.success(`${type === 'income' ? 'Income' : 'Expense'}: ₹${parseFloat(amount).toLocaleString()}`)
+      }
+    } catch { toast.error('Failed to save') }
+    finally { setAdding(false) }
   }
 
   const handleRemove = async (id: string) => {
-    await fetch(`/api/finance?id=${id}`, { method: 'DELETE' })
+    await deleteFinanceEntry(id)
     onRemove(id)
   }
 
@@ -61,21 +59,19 @@ export default function FinanceWidget({ date, entries, onAdd, onRemove }: Financ
     <div className="space-y-3">
       {/* Summary */}
       <div className="grid grid-cols-3 gap-2">
-        <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-2.5 text-center">
-          <TrendingUp size={14} className="text-green-400 mx-auto mb-1" />
-          <p className="text-xs text-muted-foreground">Income</p>
-          <p className="text-sm font-bold text-green-400 tabular-nums">₹{totalIncome.toLocaleString()}</p>
+        <div className="bg-green-500/8 border border-green-500/15 rounded-xl p-3 text-center">
+          <TrendingUp size={13} className="text-green-400 mx-auto mb-1" />
+          <p className="text-[10px] text-muted-foreground">Income</p>
+          <p className="text-[13px] font-bold text-green-400 tabular-nums">₹{totalIncome.toLocaleString()}</p>
         </div>
-        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-2.5 text-center">
-          <TrendingDown size={14} className="text-red-400 mx-auto mb-1" />
-          <p className="text-xs text-muted-foreground">Spent</p>
-          <p className="text-sm font-bold text-red-400 tabular-nums">₹{totalExpense.toLocaleString()}</p>
+        <div className="bg-red-500/8 border border-red-500/15 rounded-xl p-3 text-center">
+          <TrendingDown size={13} className="text-red-400 mx-auto mb-1" />
+          <p className="text-[10px] text-muted-foreground">Spent</p>
+          <p className="text-[13px] font-bold text-red-400 tabular-nums">₹{totalExpense.toLocaleString()}</p>
         </div>
-        <div className={`rounded-xl p-2.5 text-center border ${net >= 0
-          ? 'bg-primary/10 border-primary/20'
-          : 'bg-red-500/10 border-red-500/20'}`}>
-          <p className="text-xs text-muted-foreground">Net</p>
-          <p className={`text-sm font-bold tabular-nums ${net >= 0 ? 'text-primary' : 'text-red-400'}`}>
+        <div className={`rounded-xl p-3 text-center border ${net >= 0 ? 'bg-primary/8 border-primary/15' : 'bg-red-500/8 border-red-500/15'}`}>
+          <p className="text-[10px] text-muted-foreground mb-1">Net</p>
+          <p className={`text-[13px] font-bold tabular-nums ${net >= 0 ? 'text-primary' : 'text-red-400'}`}>
             {net >= 0 ? '+' : ''}₹{net.toLocaleString()}
           </p>
         </div>
@@ -88,25 +84,25 @@ export default function FinanceWidget({ date, entries, onAdd, onRemove }: Financ
             <div key={entry.id}
               className="flex items-center justify-between bg-card rounded-xl px-3 py-2.5 border border-border group">
               <div className="flex items-center gap-2 min-w-0">
-                <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-md ${
-                  entry.type === 'income' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                  entry.type === 'income' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
                 }`}>
-                  {entry.type === 'income' ? '+' : '-'}
+                  {entry.type === 'income' ? '+' : '−'}
                 </span>
                 <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{entry.description ?? entry.category}</p>
-                  <p className="text-xs text-muted-foreground">{entry.category}</p>
+                  <p className="text-[13px] font-medium truncate">{entry.description ?? entry.category}</p>
+                  <p className="text-[11px] text-muted-foreground">{entry.category}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <span className={`text-sm font-bold tabular-nums ${
+                <span className={`text-[13px] font-bold tabular-nums ${
                   entry.type === 'income' ? 'text-green-400' : 'text-foreground'
                 }`}>
                   ₹{entry.amount.toLocaleString()}
                 </span>
                 <button onClick={() => handleRemove(entry.id!)}
                   className="p-1 rounded-lg text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all">
-                  <X size={14} />
+                  <X size={13} />
                 </button>
               </div>
             </div>
@@ -114,35 +110,31 @@ export default function FinanceWidget({ date, entries, onAdd, onRemove }: Financ
         </div>
       )}
 
-      {/* Add form */}
+      {/* Form */}
       {showForm ? (
         <div className="space-y-2 slide-up">
           <div className="flex gap-2">
-            <button
-              onClick={() => { setType('expense'); setCategory('Food & Dining') }}
-              className={`flex-1 py-2 rounded-xl text-sm font-medium transition-all ${
-                type === 'expense' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-card border border-border text-muted-foreground'
-              }`}>Expense</button>
-            <button
-              onClick={() => { setType('income'); setCategory('Salary') }}
-              className={`flex-1 py-2 rounded-xl text-sm font-medium transition-all ${
-                type === 'income' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-card border border-border text-muted-foreground'
-              }`}>Income</button>
+            {(['expense', 'income'] as const).map(t => (
+              <button key={t}
+                onClick={() => { setType(t); setCategory(t === 'expense' ? 'Food & Dining' : 'Salary') }}
+                className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition-all ${
+                  type === t
+                    ? t === 'expense' ? 'bg-red-500/15 text-red-400 border border-red-500/25'
+                      : 'bg-green-500/15 text-green-400 border border-green-500/25'
+                    : 'bg-card border border-border text-muted-foreground'
+                }`}>
+                {t === 'expense' ? 'Expense' : 'Income'}
+              </button>
+            ))}
           </div>
           <div className="flex gap-2">
             <div className="relative flex-1">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₹</span>
-              <Input
-                type="number"
-                placeholder="0"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="pl-7 bg-card border-border"
-                autoFocus
-              />
+              <Input type="number" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)}
+                className="pl-7 bg-card border-border text-[13px]" autoFocus />
             </div>
             <Select value={category} onValueChange={(v) => v && setCategory(v)}>
-              <SelectTrigger className="w-[140px] bg-card border-border text-xs">
+              <SelectTrigger className="w-[140px] bg-card border-border text-[12px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -150,25 +142,20 @@ export default function FinanceWidget({ date, entries, onAdd, onRemove }: Financ
               </SelectContent>
             </Select>
           </div>
-          <Input
-            placeholder="Description (optional)"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-            className="bg-card border-border"
-          />
+          <Input placeholder="Description (optional)" value={description}
+            onChange={e => setDescription(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleAdd()}
+            className="bg-card border-border text-[13px]" />
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setShowForm(false)} className="flex-1 border-border">Cancel</Button>
-            <Button onClick={handleAdd} disabled={adding || !amount} className="flex-1 bg-primary hover:bg-primary/90">
-              Add
-            </Button>
+            <Button variant="outline" onClick={() => setShowForm(false)} className="flex-1 border-border text-[13px]">Cancel</Button>
+            <Button onClick={handleAdd} disabled={adding || !amount} className="flex-1 bg-primary text-[13px]">Add</Button>
           </div>
         </div>
       ) : (
         <button
           onClick={() => setShowForm(true)}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors text-sm">
-          <Plus size={16} />
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors text-[13px]">
+          <Plus size={14} />
           Add transaction
         </button>
       )}
