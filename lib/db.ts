@@ -42,6 +42,16 @@ export async function getFoodEntries(date: string): Promise<FoodEntry[]> {
   return all.filter(e => e.date === date)
 }
 
+export async function getFoodEntriesRange(startDate: string, endDate: string): Promise<FoodEntry[]> {
+  try {
+    const { data } = await supabase.from('food_entries').select('*')
+      .gte('date', startDate).lte('date', endDate).order('date', { ascending: true })
+    if (data) { offlinePutAll('food_entries', data as Record<string, unknown>[]); return data }
+  } catch { /* fall through */ }
+  const all = await offlineGetAll<FoodEntry>('food_entries')
+  return all.filter(e => e.date >= startDate && e.date <= endDate)
+}
+
 export async function addFoodEntry(entry: Omit<FoodEntry, 'id' | 'created_at'>): Promise<FoodEntry> {
   const tempId = crypto.randomUUID()
   const local = { ...entry, id: tempId, created_at: new Date().toISOString() }

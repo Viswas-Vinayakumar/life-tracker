@@ -1,20 +1,23 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, subDays } from 'date-fns'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts'
-import { Flame, TrendingUp, Target, Trophy, Sparkles, RefreshCw, Lightbulb, Brain } from 'lucide-react'
+import { Flame, TrendingUp, Target, Trophy, Sparkles, RefreshCw, Lightbulb, Brain, Heart, Activity, Footprints, Dumbbell, BookOpen, Droplets, Moon, Apple, Link, Unlink } from 'lucide-react'
 import type { DailyLog, FoodEntry } from '@/types'
 import { getScoreColor, getScoreLabel } from '@/lib/scoring'
-import { getLogs, getFoodEntries } from '@/lib/db'
+import { getLogs, getFoodEntries, getFoodEntriesRange } from '@/lib/db'
 import { getLifeSummary, isOllamaRunning, type LifeSummary } from '@/lib/ollama'
+import { isGFitConnected, connectGoogleFit, clearGFitToken, fetchFitData, type FitDay } from '@/lib/googleFit'
 import { format as formatDate } from 'date-fns'
+import { toast } from 'sonner'
 
 const PIE_COLORS = ['#a78bfa', '#38bdf8', '#34d399', '#fbbf24', '#f87171']
-const TODAY = formatDate(new Date(), 'yyyy-MM')
+const TODAY = formatDate(new Date(), 'yyyy-MM-dd')
+const GOALS = { calories: 2200, protein: 150, carbs: 250, fat: 70, fiber: 30 }
 
 function calcStreak(logs: DailyLog[], key: keyof DailyLog): number {
   let streak = 0
@@ -22,12 +25,12 @@ function calcStreak(logs: DailyLog[], key: keyof DailyLog): number {
   return streak
 }
 
-function ChartTip({ active, payload, label }: { active?: boolean; payload?: { value: number; name?: string }[]; label?: string }) {
+function ChartTip({ active, payload, label }: { active?: boolean; payload?: { value: number; name?: string; color?: string }[]; label?: string }) {
   if (!active || !payload?.length) return null
   return (
     <div className="card" style={{ padding: '8px 12px', fontSize: 12 }}>
       <p className="footnote" style={{ marginBottom: 4 }}>{label}</p>
-      {payload.map((p, i) => <p key={i} style={{ fontWeight: 600 }}>{p.name ? `${p.name}: ` : ''}{p.value}</p>)}
+      {payload.map((p, i) => <p key={i} style={{ fontWeight: 600, color: p.color ?? 'var(--text-1)' }}>{p.name ? `${p.name}: ` : ''}{p.value}</p>)}
     </div>
   )
 }
@@ -42,24 +45,98 @@ const LABEL_BG: Record<LifeSummary['label'], string> = {
   needs_work: 'color-mix(in srgb, var(--warning) 12%, transparent)',
 }
 
+function macroScore(calories: number, protein: number, carbs: number, fat: number, fiber: number): number {
+  const calScore = Math.min(calories / GOALS.calories, 1.3)
+  const proteinPct = Math.min(protein / GOALS.protein, 1)
+  const carbsPct = Math.min(carbs / GOALS.carbs, 1)
+  const fatPct = 1 - Math.abs(1 - fat / GOALS.fat) * 0.5
+  const fiberPct = Math.min(fiber / GOALS.fiber, 1)
+  // Penalize over-eating, reward protein + fiber
+  const calPenalty = calScore > 1 ? (calScore - 1) * 15 : 0
+  const raw = (proteinPct * 35 + carbsPct * 20 + fatPct * 20 + fiberPct * 25) - calPenalty
+  return Math.max(0, Math.min(100, Math.round(raw)))
+}
+
+function HealthScoreRing({ score, size = 80, strokeWidth = 7, color }: { score: number; size?: number; strokeWidth?: number; color: string }) {
+  const r = (size - strokeWidth) / 2
+  const circ = 2 * Math.PI * r
+  const dash = (score / 100) * circ
+  return (
+    <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--bg-3)" strokeWidth={strokeWidth} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={strokeWidth}
+        strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+        style={{ transition: 'stroke-dasharray 1.2s cubic-bezier(0.34,1.2,0.64,1)' }} />
+    </svg>
+  )
+}
+
 export default function DashboardPage() {
   const [logs, setLogs] = useState<DailyLog[]>([])
   const [food, setFood] = useState<FoodEntry[]>([])
+  const [food30, setFood30] = useState<FoodEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [summary, setSummary] = useState<LifeSummary | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [ollamaOk, setOllamaOk] = useState<boolean | null>(null)
   const [summaryError, setSummaryError] = useState(false)
 
+  // Google Fit
+  const [gfitConnected, setGfitConnected] = useState(false)
+  const [gfitData, setGfitData] = useState<FitDay[]>([])
+  const [gfitLoading, setGfitLoading] = useState(false)
+  const [gfitError, setGfitError] = useState('')
+  const hasGfitKey = Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID)
+
   useEffect(() => {
-    Promise.all([getLogs(30), getFoodEntries(TODAY)])
-      .then(([l, f]) => { setLogs(l); setFood(f); setLoading(false) })
+    const end = TODAY
+    const start = formatDate(subDays(new Date(), 29), 'yyyy-MM-dd')
+    Promise.all([getLogs(30), getFoodEntries(TODAY), getFoodEntriesRange(start, end)])
+      .then(([l, f, f30]) => { setLogs(l); setFood(f); setFood30(f30); setLoading(false) })
       .catch(() => setLoading(false))
     isOllamaRunning().then(setOllamaOk)
+    setGfitConnected(isGFitConnected())
   }, [])
 
+  useEffect(() => {
+    if (gfitConnected) loadFitData()
+  }, [gfitConnected]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadFitData = async () => {
+    setGfitLoading(true)
+    setGfitError('')
+    try {
+      const data = await fetchFitData(7)
+      setGfitData(data)
+    } catch { setGfitError('Failed to load fitness data') }
+    finally { setGfitLoading(false) }
+  }
+
+  const handleGfitConnect = async () => {
+    if (!hasGfitKey) {
+      toast.error('Add NEXT_PUBLIC_GOOGLE_CLIENT_ID to .env.local first')
+      return
+    }
+    setGfitLoading(true)
+    try {
+      await connectGoogleFit()
+      setGfitConnected(true)
+      toast.success('Google Fit connected')
+    } catch (e) {
+      setGfitError(e instanceof Error ? e.message : 'Auth failed')
+      toast.error('Google Fit auth failed')
+    }
+    setGfitLoading(false)
+  }
+
+  const handleGfitDisconnect = () => {
+    clearGFitToken()
+    setGfitConnected(false)
+    setGfitData([])
+    toast.success('Google Fit disconnected')
+  }
+
   const loadSummary = useCallback(async (force = false) => {
-    // Use cached summary if fresh (< 4 hours)
     if (!force) {
       const cached = localStorage.getItem('lifeos_ai_summary')
       if (cached) {
@@ -135,6 +212,80 @@ export default function DashboardPage() {
   const level = Math.floor(pct / 10) + 1
   const levelLabels = ['Seedling', 'Rooted', 'Growing', 'Thriving', 'Blooming', 'Flourishing', 'Strong', 'Elite', 'Apex', 'Peak']
 
+  // ── Nutrition calculations ──
+  const foodByDate: Record<string, FoodEntry[]> = {}
+  for (const f of food30) {
+    if (!foodByDate[f.date]) foodByDate[f.date] = []
+    foodByDate[f.date].push(f)
+  }
+  const daysWithFood = Object.keys(foodByDate).length
+  const sum = (key: keyof FoodEntry) => food30.reduce((s, f) => s + ((f[key] as number) ?? 0), 0)
+  const avgCal = daysWithFood ? Math.round(sum('calories') / daysWithFood) : 0
+  const avgProtein = daysWithFood ? Math.round(sum('protein') / daysWithFood) : 0
+  const avgCarbs = daysWithFood ? Math.round(sum('carbs') / daysWithFood) : 0
+  const avgFat = daysWithFood ? Math.round(sum('fat') / daysWithFood) : 0
+  const avgFiber = daysWithFood ? Math.round(sum('fiber') / daysWithFood) : 0
+  const nutritionScore = macroScore(avgCal, avgProtein, avgCarbs, avgFat, avgFiber)
+
+  const macroData = [
+    { name: 'Protein', value: avgProtein, goal: GOALS.protein, color: '#a78bfa' },
+    { name: 'Carbs', value: avgCarbs, goal: GOALS.carbs, color: '#38bdf8' },
+    { name: 'Fat', value: avgFat, goal: GOALS.fat, color: '#fbbf24' },
+    { name: 'Fiber', value: avgFiber, goal: GOALS.fiber, color: '#34d399' },
+  ]
+
+  // Calorie trend chart (one point per logged day with food)
+  const calTrendData = last30
+    .filter(l => foodByDate[l.date])
+    .map(l => ({
+      date: format(parseISO(l.date), 'MMM d'),
+      cal: Math.round(foodByDate[l.date].reduce((s, f) => s + (f.calories ?? 0), 0)),
+    }))
+
+  // ── Overall Health Score ──
+  const gymRate = logs.length ? gymDays / logs.length : 0
+  const studyRate = logs.length ? studyDays / logs.length : 0
+  const skincareDays = logs.filter(l => l.skincare_am && l.skincare_pm).length
+  const skincareRate = logs.length ? skincareDays / logs.length : 0
+  const avgSleep = logs.filter(l => l.sleep_hours).length
+    ? logs.filter(l => l.sleep_hours).reduce((s, l) => s + (l.sleep_hours ?? 0), 0) / logs.filter(l => l.sleep_hours).length
+    : 0
+  const avgWater = logs.length ? logs.reduce((s, l) => s + l.water_glasses, 0) / logs.length : 0
+  const avgMood = logs.filter(l => l.mood).length
+    ? logs.filter(l => l.mood).reduce((s, l) => s + (l.mood ?? 0), 0) / logs.filter(l => l.mood).length
+    : 0
+  const avgEnergy = logs.filter(l => l.energy).length
+    ? logs.filter(l => l.energy).reduce((s, l) => s + (l.energy ?? 0), 0) / logs.filter(l => l.energy).length
+    : 0
+
+  const bodyScore = Math.round(gymRate * 40 + Math.min(avgSleep / 8, 1) * 30 + Math.min(avgWater / 8, 1) * 30)
+  const mindScore = Math.round(studyRate * 50 + (avgMood / 10) * 25 + (avgEnergy / 10) * 25)
+  const habitsScore = Math.round(skincareRate * 100)
+  const vitalityScore = Math.round(((avgMood / 10) + (avgEnergy / 10)) * 50)
+
+  const healthComponents = [
+    { label: 'Body', score: bodyScore, color: 'var(--violet)', icon: <Dumbbell size={12} />, weight: 0.3 },
+    { label: 'Mind', score: mindScore, color: 'var(--cyan)', icon: <BookOpen size={12} />, weight: 0.25 },
+    { label: 'Habits', score: habitsScore, color: 'var(--amber)', icon: <Droplets size={12} />, weight: 0.2 },
+    { label: 'Nutrition', score: nutritionScore, color: 'var(--success)', icon: <Apple size={12} />, weight: 0.15 },
+    { label: 'Vitality', score: vitalityScore, color: 'var(--indigo)', icon: <Moon size={12} />, weight: 0.1 },
+  ]
+  const overallHealth = Math.round(
+    healthComponents.reduce((s, c) => s + c.score * c.weight, 0)
+  )
+
+  // Google Fit — last 7 days
+  const todayFit = gfitData.find(d => d.date === TODAY)
+  const avgSteps = gfitData.length ? Math.round(gfitData.reduce((s, d) => s + d.steps, 0) / gfitData.length) : 0
+  const avgHR = gfitData.filter(d => d.heart_rate_avg).length
+    ? Math.round(gfitData.filter(d => d.heart_rate_avg).reduce((s, d) => s + (d.heart_rate_avg ?? 0), 0) / gfitData.filter(d => d.heart_rate_avg).length)
+    : 0
+  const fitChartData = gfitData.map(d => ({
+    date: format(parseISO(d.date), 'MMM d'),
+    steps: d.steps,
+    hr: d.heart_rate_avg ?? 0,
+  }))
+
   return (
     <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 28, maxWidth: 1100 }}>
       {/* Header */}
@@ -148,11 +299,51 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* ── Overall Health Score ─────────────────────── */}
+      <section>
+        <p className="section-label">Overall Health Score</p>
+        <div className="card" style={{ padding: '20px 24px', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, var(--violet), var(--cyan), var(--success), var(--amber))', opacity: 0.8 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
+            {/* Big ring */}
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <HealthScoreRing score={overallHealth} size={100} strokeWidth={9} color={getScoreColor(overallHealth)} />
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="tabular-nums" style={{ fontSize: 24, fontWeight: 800, color: getScoreColor(overallHealth), lineHeight: 1 }}>{overallHealth}</span>
+                <span style={{ fontSize: 9, color: 'var(--text-3)', marginTop: 2 }}>/100</span>
+              </div>
+            </div>
+            {/* Component breakdown */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {healthComponents.map(c => (
+                <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 76, flexShrink: 0, color: c.color }}>
+                    {c.icon}
+                    <span style={{ fontSize: 11, fontWeight: 600, color: c.color }}>{c.label}</span>
+                  </div>
+                  <div style={{ flex: 1, height: 5, background: 'var(--bg-3)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${c.score}%`, background: c.color, borderRadius: 3, transition: 'width 1s cubic-bezier(0.34,1.2,0.64,1)' }} />
+                  </div>
+                  <span className="tabular-nums" style={{ fontSize: 11, fontWeight: 700, color: c.color, width: 28, textAlign: 'right', flexShrink: 0 }}>{c.score}</span>
+                </div>
+              ))}
+            </div>
+            {/* Label */}
+            <div style={{ flexShrink: 0, textAlign: 'center' }}>
+              <div style={{
+                padding: '4px 10px', borderRadius: 20,
+                background: `color-mix(in srgb, ${getScoreColor(overallHealth)} 12%, transparent)`,
+              }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: getScoreColor(overallHealth) }}>{getScoreLabel(overallHealth)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── AI Summary Card ──────────────────────────────── */}
       <div className="card" style={{ padding: '18px 20px', borderColor: summary ? `color-mix(in srgb, ${LABEL_COLOR[summary.label]} 30%, transparent)` : 'var(--border-2)', position: 'relative', overflow: 'hidden' }}>
-        {/* Gradient accent */}
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, var(--violet), var(--cyan), var(--accent))', opacity: 0.7 }} />
-
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: summary ? 12 : 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ width: 28, height: 28, borderRadius: 8, background: 'color-mix(in srgb, var(--violet) 15%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -169,23 +360,16 @@ export default function DashboardPage() {
             <RefreshCw size={12} style={{ animation: summaryLoading ? 'spin 1s linear infinite' : 'none' }} />
           </button>
         </div>
-
         {summaryLoading && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-3)', padding: '8px 0' }}>
             <div style={{ width: 14, height: 14, borderRadius: '50%', border: '2px solid var(--violet)', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite' }} />
             <span style={{ fontSize: 13 }}>Analysing your patterns…</span>
           </div>
         )}
-
         {!summaryLoading && summary && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {/* Headline */}
-            <p style={{ fontSize: 16, fontWeight: 700, color: LABEL_COLOR[summary.label], lineHeight: 1.3 }}>
-              {summary.headline}
-            </p>
-            {/* Insight */}
+            <p style={{ fontSize: 16, fontWeight: 700, color: LABEL_COLOR[summary.label], lineHeight: 1.3 }}>{summary.headline}</p>
             <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>{summary.insight}</p>
-            {/* Pattern + Suggestion */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <div style={{ padding: '10px 12px', borderRadius: 'var(--r)', background: 'var(--bg-2)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
@@ -204,22 +388,18 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
-
         {!summaryLoading && !summary && !summaryError && logs.length < 2 && (
           <p style={{ fontSize: 13, color: 'var(--text-3)', padding: '4px 0' }}>Log at least 2 days to get AI insights.</p>
         )}
-
         {!summaryLoading && summaryError && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0' }}>
-            <p style={{ fontSize: 13, color: 'var(--text-3)' }}>
-              {ollamaOk ? 'AI analysis failed. Try refreshing.' : 'Install Ollama for AI insights: '}
-              {!ollamaOk && <code style={{ fontSize: 11, color: 'var(--text-2)' }}>brew install ollama && ollama pull llama3.2:3b</code>}
-            </p>
-          </div>
+          <p style={{ fontSize: 13, color: 'var(--text-3)', padding: '4px 0' }}>
+            {ollamaOk ? 'AI analysis failed. Try refreshing.' : 'Install Ollama: '}
+            {!ollamaOk && <code style={{ fontSize: 11, color: 'var(--text-2)' }}>brew install ollama && ollama pull llama3.2:3b</code>}
+          </p>
         )}
       </div>
 
-      {/* ── Top stat cards ───────────────────────────────── */}
+      {/* ── Top stat cards ─────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
         {[
           { icon: <Trophy size={13} />, label: '30-Day Avg', value: avgScore, suffix: '/100', color: getScoreColor(avgScore) },
@@ -241,7 +421,7 @@ export default function DashboardPage() {
 
       <div style={{ height: 1, background: 'var(--border-2)' }} />
 
-      {/* ── Score chart (full width) ──────────────────────── */}
+      {/* ── Score chart (full width) ───────────────────── */}
       <section>
         <p className="section-label">Performance — 30 Days</p>
         {chartData.length > 0 ? (
@@ -269,7 +449,200 @@ export default function DashboardPage() {
         )}
       </section>
 
-      {/* ── Streaks ──────────────────────────────────────── */}
+      {/* ── Nutrition Dashboard ────────────────────────── */}
+      <section>
+        <p className="section-label">Nutrition — 30-Day Avg</p>
+        {daysWithFood === 0 ? (
+          <div className="card" style={{ padding: '32px 0', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+            No food logged yet — add meals in Today
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {/* Calorie row */}
+            <div className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 20 }}>
+              <div>
+                <p className="footnote" style={{ marginBottom: 2 }}>🔥 Daily Calories</p>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                  <span className="tabular-nums" style={{ fontSize: 28, fontWeight: 800, color: avgCal > GOALS.calories * 1.2 ? 'var(--error)' : avgCal > GOALS.calories ? 'var(--warning)' : 'var(--success)' }}>{avgCal}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-3)' }}>/ {GOALS.calories} goal</span>
+                </div>
+              </div>
+              <div style={{ flex: 1, height: 6, background: 'var(--bg-3)', borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: `${Math.min((avgCal / GOALS.calories) * 100, 100)}%`,
+                  background: avgCal > GOALS.calories * 1.2 ? 'var(--error)' : avgCal > GOALS.calories ? 'var(--warning)' : 'var(--success)',
+                  borderRadius: 4, transition: 'width 1s cubic-bezier(0.34,1.2,0.64,1)',
+                }} />
+              </div>
+              <span style={{ fontSize: 11, color: 'var(--text-3)', flexShrink: 0 }}>{daysWithFood}d tracked</span>
+            </div>
+
+            {/* Macros grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+              {macroData.map(m => {
+                const pctOfGoal = Math.round((m.value / m.goal) * 100)
+                return (
+                  <div key={m.name} className="card" style={{ padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: m.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-2)' }}>{m.name}</span>
+                    </div>
+                    <p className="tabular-nums" style={{ fontSize: 20, fontWeight: 700, color: m.color, marginBottom: 6 }}>
+                      {m.value}<span style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-3)' }}>g</span>
+                    </p>
+                    <div style={{ height: 3, background: 'var(--bg-3)', borderRadius: 2, overflow: 'hidden', marginBottom: 4 }}>
+                      <div style={{ height: '100%', width: `${Math.min(pctOfGoal, 100)}%`, background: m.color, borderRadius: 2, transition: 'width 1s ease' }} />
+                    </div>
+                    <p style={{ fontSize: 9, color: 'var(--text-3)' }}>{pctOfGoal}% of {m.goal}g goal</p>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Calorie trend + macro pie */}
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+              {calTrendData.length > 1 && (
+                <div className="card" style={{ padding: '14px 14px 10px' }}>
+                  <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Calorie Trend</p>
+                  <ResponsiveContainer width="100%" height={100}>
+                    <AreaChart data={calTrendData} margin={{ top: 2, right: 2, bottom: 0, left: -20 }}>
+                      <defs>
+                        <linearGradient id="calg" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#34d399" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#34d399" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border-2)" vertical={false} />
+                      <XAxis dataKey="date" tick={{ fontSize: 8, fill: 'var(--text-3)' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 8, fill: 'var(--text-3)' }} tickLine={false} axisLine={false} />
+                      <Tooltip content={<ChartTip />} />
+                      <Area type="monotone" dataKey="cal" name="kcal" stroke="#34d399" strokeWidth={1.5} fill="url(#calg)" dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              <div className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 4, justifyContent: 'center' }}>
+                <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Macros</p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <PieChart width={80} height={80}>
+                    <Pie data={macroData.filter(m => m.value > 0)} cx={36} cy={36} innerRadius={20} outerRadius={36} dataKey="value" strokeWidth={0}>
+                      {macroData.map((m, i) => <Cell key={i} fill={m.color} />)}
+                    </Pie>
+                  </PieChart>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {macroData.map(m => (
+                      <div key={m.name} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: m.color, flexShrink: 0 }} />
+                        <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{m.name}</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, marginLeft: 'auto' }}>{m.value}g</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ── Google Fit ─────────────────────────────────── */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <p className="section-label" style={{ margin: 0 }}>Google Fit</p>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {gfitConnected && (
+              <button onClick={loadFitData} disabled={gfitLoading}
+                style={{ height: 28, padding: '0 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'none', cursor: 'default', fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <RefreshCw size={10} style={{ animation: gfitLoading ? 'spin 1s linear infinite' : 'none' }} />
+                Sync
+              </button>
+            )}
+            <button
+              onClick={gfitConnected ? handleGfitDisconnect : handleGfitConnect}
+              disabled={gfitLoading}
+              style={{
+                height: 28, padding: '0 12px', borderRadius: 7, border: 'none', cursor: 'default', fontSize: 11, fontWeight: 600,
+                background: gfitConnected ? 'color-mix(in srgb, var(--error) 12%, transparent)' : 'var(--accent)',
+                color: gfitConnected ? 'var(--error)' : '#fff',
+                display: 'flex', alignItems: 'center', gap: 5, opacity: gfitLoading ? 0.7 : 1,
+              }}>
+              {gfitConnected ? <><Unlink size={11} /> Disconnect</> : <><Link size={11} /> Connect Google Fit</>}
+            </button>
+          </div>
+        </div>
+
+        {!gfitConnected && (
+          <div className="card" style={{ padding: '20px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: 'color-mix(in srgb, var(--success) 12%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Activity size={20} color="var(--success)" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Sync your steps, heart rate & more</p>
+                <p className="footnote">
+                  {hasGfitKey
+                    ? 'Click Connect to authorise Google Fit access. Data syncs automatically.'
+                    : 'Add NEXT_PUBLIC_GOOGLE_CLIENT_ID to .env.local from your Google Cloud Console to enable this.'}
+                </p>
+                {!hasGfitKey && (
+                  <p style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 6 }}>
+                    Setup: console.cloud.google.com → Enable Fitness API → OAuth client → add origin tauri://localhost
+                  </p>
+                )}
+              </div>
+            </div>
+            {gfitError && <p style={{ fontSize: 12, color: 'var(--error)', marginTop: 10 }}>{gfitError}</p>}
+          </div>
+        )}
+
+        {gfitConnected && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {/* Summary cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+              {[
+                { icon: <Footprints size={13} />, label: "Today's Steps", value: todayFit?.steps ?? 0, suffix: '', color: 'var(--success)' },
+                { icon: <Activity size={13} />, label: '7-Day Avg Steps', value: avgSteps, suffix: '', color: 'var(--accent)' },
+                { icon: <Heart size={13} />, label: 'Avg Heart Rate', value: avgHR || '—', suffix: avgHR ? ' bpm' : '', color: 'var(--error)' },
+                { icon: <Flame size={13} />, label: "Today's Cal Burn", value: todayFit?.calories_burned ?? 0, suffix: ' kcal', color: 'var(--warning)' },
+              ].map(({ icon, label, value, suffix, color }) => (
+                <div key={label} className="card" style={{ padding: '14px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, color, marginBottom: 6 }}>
+                    {icon}
+                    <span style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
+                  </div>
+                  <p className="tabular-nums" style={{ fontSize: 20, fontWeight: 700, color }}>
+                    {typeof value === 'number' ? value.toLocaleString() : value}
+                    <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 400 }}>{suffix}</span>
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {/* Steps chart */}
+            {fitChartData.length > 0 && (
+              <div className="card" style={{ padding: '14px 14px 10px' }}>
+                <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Steps — Last 7 Days</p>
+                <ResponsiveContainer width="100%" height={120}>
+                  <BarChart data={fitChartData} margin={{ top: 2, right: 2, bottom: 0, left: -18 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-2)" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--text-3)' }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 9, fill: 'var(--text-3)' }} tickLine={false} axisLine={false} />
+                    <Tooltip content={<ChartTip />} />
+                    <Bar dataKey="steps" name="Steps" fill="var(--success)" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {gfitData.length === 0 && !gfitLoading && (
+              <p className="footnote" style={{ textAlign: 'center', padding: '12px 0' }}>No fitness data found for the last 7 days.</p>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ── Streaks ─────────────────────────────────────── */}
       <section>
         <p className="section-label">Streaks</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
@@ -288,9 +661,8 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* ── Charts grid ──────────────────────────────────── */}
+      {/* ── Charts grid ─────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-        {/* Gym vs Study */}
         {chartData.length > 0 && (
           <section>
             <p className="section-label">Gym vs Study</p>
@@ -316,7 +688,6 @@ export default function DashboardPage() {
           </section>
         )}
 
-        {/* Habit breakdown */}
         {habitPieData.length > 0 && (
           <section>
             <p className="section-label">Habits</p>
@@ -341,7 +712,6 @@ export default function DashboardPage() {
           </section>
         )}
 
-        {/* Growth level */}
         <section>
           <p className="section-label">Growth Level</p>
           <div className="card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>

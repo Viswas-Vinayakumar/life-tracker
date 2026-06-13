@@ -12,6 +12,8 @@ export interface DailyLog {
   mood?: number
   energy?: number
   weight_kg?: number
+  steps?: number
+  heart_rate_avg?: number
   journal?: string
   performance_score?: number
   created_at?: string

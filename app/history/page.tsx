@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { format, parseISO } from 'date-fns'
-import { Check, X, ChevronDown, ChevronUp, Pencil, Save, Loader2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { format, parseISO, subDays } from 'date-fns'
+import { Check, X, ChevronDown, ChevronUp, Pencil, Save, Loader2, CalendarPlus } from 'lucide-react'
 import { getScoreColor, getScoreLabel, calculateScore } from '@/lib/scoring'
-import { getLogs, upsertLog } from '@/lib/db'
+import { getLogs, upsertLog, getLog } from '@/lib/db'
 import type { DailyLog } from '@/types'
 import { toast } from 'sonner'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { logActivity } from '@/lib/activityLog'
 
 function HabitDot({ done, color }: { done: boolean; color?: string }) {
   return (
@@ -41,6 +42,15 @@ function Slider({ value, max, onChange, color }: { value: number; max: number; o
   )
 }
 
+const EMPTY_LOG = (date: string): DailyLog => ({
+  date,
+  gym_done: false,
+  study_done: false,
+  skincare_am: false,
+  skincare_pm: false,
+  water_glasses: 0,
+})
+
 export default function HistoryPage() {
   const [logs, setLogs] = useState<DailyLog[]>([])
   const [loading, setLoading] = useState(true)
@@ -49,6 +59,13 @@ export default function HistoryPage() {
   const [editData, setEditData] = useState<Partial<DailyLog>>({})
   const [saving, setSaving] = useState(false)
   const [confirm, setConfirm] = useState<{ open: boolean; logDate?: string }>({ open: false })
+
+  // Past-day picker state
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerDate, setPickerDate] = useState('')
+  const [pickerLoading, setPickerLoading] = useState(false)
+  const [pickerConfirm, setPickerConfirm] = useState<{ open: boolean; existing: boolean; date: string; log: DailyLog | null }>({ open: false, existing: false, date: '', log: null })
+  const dateInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     getLogs(90).then(data => { setLogs(data); setLoading(false) }).catch(() => setLoading(false))
@@ -71,7 +88,12 @@ export default function HistoryPage() {
       const score = calculateScore(editData, food)
       const updated = { ...editData, performance_score: score, date }
       await upsertLog(updated)
-      setLogs(prev => prev.map(l => l.date === date ? { ...l, ...updated } as DailyLog : l))
+      await logActivity('history_edit', 'edited', `Edited log for ${date}`, date)
+      setLogs(prev => {
+        const exists = prev.find(l => l.date === date)
+        if (exists) return prev.map(l => l.date === date ? { ...l, ...updated } as DailyLog : l)
+        return [...prev, updated as DailyLog].sort((a, b) => b.date.localeCompare(a.date))
+      })
       setEditing(null)
       setEditData({})
       toast.success('Day updated')
@@ -81,6 +103,41 @@ export default function HistoryPage() {
 
   const patch = (k: keyof DailyLog, v: DailyLog[keyof DailyLog]) => setEditData(prev => ({ ...prev, [k]: v }))
 
+  // Load a past date and check if it already has data
+  const openPastDay = async () => {
+    if (!pickerDate) return
+    setPickerLoading(true)
+    try {
+      const existing = await getLog(pickerDate)
+      setPickerConfirm({ open: true, existing: Boolean(existing), date: pickerDate, log: existing })
+    } catch {
+      setPickerConfirm({ open: true, existing: false, date: pickerDate, log: null })
+    }
+    setPickerLoading(false)
+  }
+
+  const confirmOpenPastDay = () => {
+    const { date, log } = pickerConfirm
+    const logToEdit = log ?? EMPTY_LOG(date)
+    setPickerConfirm({ open: false, existing: false, date: '', log: null })
+    setPickerOpen(false)
+    setPickerDate('')
+
+    // Add to list if not already there
+    setLogs(prev => {
+      const exists = prev.find(l => l.date === date)
+      if (!exists) return [...prev, logToEdit].sort((a, b) => b.date.localeCompare(a.date))
+      return prev
+    })
+    // Open + enter edit mode for that date
+    setExpanded(date)
+    startEdit(logToEdit)
+    // Scroll after a tick so the element exists
+    setTimeout(() => {
+      document.getElementById(`day-${date}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 120)
+  }
+
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 12, color: 'var(--text-3)' }}>
       <div style={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid var(--accent)', borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
@@ -89,12 +146,64 @@ export default function HistoryPage() {
 
   const sorted = [...logs].sort((a, b) => b.date.localeCompare(a.date))
   const last30 = sorted.slice(0, 30)
+  const maxDate = format(subDays(new Date(), 1), 'yyyy-MM-dd')
 
   return (
     <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 860 }}>
-      <div>
-        <h1 className="title-lg">History</h1>
-        <p className="footnote" style={{ marginTop: 4 }}>Last 90 days · {logs.length} logged · tap <strong>Edit</strong> on any row to update past data</p>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <h1 className="title-lg">History</h1>
+          <p className="footnote" style={{ marginTop: 4 }}>Last 90 days · {logs.length} logged · tap <strong>Edit</strong> on any row to update past data</p>
+        </div>
+
+        {/* Log Past Day picker */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', position: 'relative' }}>
+          {pickerOpen && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', animation: 'fade-up 0.15s ease both' }}>
+              <input
+                ref={dateInputRef}
+                type="date"
+                value={pickerDate}
+                max={maxDate}
+                onChange={e => setPickerDate(e.target.value)}
+                style={{
+                  height: 32, borderRadius: 8, border: '1px solid var(--border)', padding: '0 10px',
+                  fontSize: 12, background: 'var(--bg-2)', color: 'var(--text-1)', cursor: 'default',
+                }}
+              />
+              <button
+                onClick={openPastDay}
+                disabled={!pickerDate || pickerLoading}
+                style={{
+                  height: 32, padding: '0 12px', borderRadius: 8, border: 'none',
+                  background: pickerDate ? 'var(--accent)' : 'var(--bg-3)',
+                  color: pickerDate ? '#fff' : 'var(--text-3)',
+                  fontSize: 12, fontWeight: 600, cursor: 'default', display: 'flex', alignItems: 'center', gap: 5,
+                  opacity: pickerLoading ? 0.7 : 1,
+                }}>
+                {pickerLoading
+                  ? <><Loader2 size={11} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</>
+                  : 'Open'}
+              </button>
+              <button onClick={() => { setPickerOpen(false); setPickerDate('') }}
+                style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border)', background: 'none', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)' }}>
+                <X size={12} />
+              </button>
+            </div>
+          )}
+          <button
+            onClick={() => { setPickerOpen(p => !p); setTimeout(() => dateInputRef.current?.focus(), 60) }}
+            style={{
+              height: 32, padding: '0 12px', borderRadius: 8, border: '1px solid var(--border)',
+              background: pickerOpen ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : 'var(--bg-2)',
+              color: pickerOpen ? 'var(--accent)' : 'var(--text-2)',
+              fontSize: 12, fontWeight: 600, cursor: 'default', display: 'flex', alignItems: 'center', gap: 6,
+              outline: pickerOpen ? '1.5px solid var(--accent)' : 'none',
+            }}>
+            <CalendarPlus size={12} />
+            Log Past Day
+          </button>
+        </div>
       </div>
 
       {/* 30-day heatmap */}
@@ -145,7 +254,7 @@ export default function HistoryPage() {
         {sorted.length === 0 ? (
           <div className="card" style={{ padding: '48px 0', textAlign: 'center', color: 'var(--text-3)' }}>
             <p style={{ fontSize: 32, marginBottom: 8 }}>📅</p>
-            <p style={{ fontSize: 13 }}>No history yet</p>
+            <p style={{ fontSize: 13 }}>No history yet — use "Log Past Day" to add one</p>
           </div>
         ) : sorted.map((log, idx) => {
           const score = log.performance_score ?? 0
@@ -155,7 +264,7 @@ export default function HistoryPage() {
           const ed = isEditing ? editData : log
 
           return (
-            <div key={log.date} className="card" style={{ overflow: 'hidden', animation: `fade-up 0.14s ${Math.min(idx, 10) * 0.02}s ease both` }}>
+            <div id={`day-${log.date}`} key={log.date} className="card" style={{ overflow: 'hidden', animation: `fade-up 0.14s ${Math.min(idx, 10) * 0.02}s ease both` }}>
               {/* Row header */}
               <div style={{ display: 'flex', alignItems: 'center', padding: '12px 14px', gap: 10 }}>
                 <button
@@ -212,22 +321,22 @@ export default function HistoryPage() {
                             { key: 'study_done' as const, label: '📚 Study', color: 'var(--cyan)' },
                             { key: 'skincare_am' as const, label: '☀️ Skincare AM', color: 'var(--amber)' },
                             { key: 'skincare_pm' as const, label: '🌙 Skincare PM', color: 'var(--indigo)' },
-                          ].map(({ key, label, color }) => (
+                          ].map(({ key, label, color: c }) => (
                             <button key={key} onClick={() => patch(key, !ed[key])}
                               style={{
                                 display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8,
                                 border: 'none', cursor: 'default', textAlign: 'left',
-                                background: ed[key] ? `color-mix(in srgb, ${color} 14%, transparent)` : 'var(--bg-2)',
-                                outline: ed[key] ? `1.5px solid ${color}` : 'none',
+                                background: ed[key] ? `color-mix(in srgb, ${c} 14%, transparent)` : 'var(--bg-2)',
+                                outline: ed[key] ? `1.5px solid ${c}` : 'none',
                                 transition: 'all 0.15s ease',
                               }}>
                               <div style={{
                                 width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                                background: ed[key] ? color : 'var(--bg-3)',
+                                background: ed[key] ? c : 'var(--bg-3)',
                               }}>
                                 {ed[key] && <Check size={10} color="white" strokeWidth={3} />}
                               </div>
-                              <span style={{ fontSize: 12, fontWeight: 600, color: ed[key] ? color : 'var(--text-2)' }}>{label}</span>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: ed[key] ? c : 'var(--text-2)' }}>{label}</span>
                             </button>
                           ))}
                         </div>
@@ -255,7 +364,6 @@ export default function HistoryPage() {
 
                       {/* Vitals */}
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                        {/* Water */}
                         <div>
                           <p className="footnote" style={{ marginBottom: 6 }}>💧 Water glasses</p>
                           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -272,7 +380,6 @@ export default function HistoryPage() {
                           </div>
                         </div>
 
-                        {/* Sleep */}
                         <div>
                           <p className="footnote" style={{ marginBottom: 6 }}>😴 Sleep hours</p>
                           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -290,13 +397,11 @@ export default function HistoryPage() {
                           </div>
                         </div>
 
-                        {/* Mood */}
                         <div>
                           <p className="footnote" style={{ marginBottom: 6 }}>😊 Mood ({ed.mood ?? '—'}/10)</p>
                           <Slider value={ed.mood ?? 0} max={10} color="var(--warning)" onChange={v => patch('mood', v || undefined)} />
                         </div>
 
-                        {/* Energy */}
                         <div>
                           <p className="footnote" style={{ marginBottom: 6 }}>⚡ Energy ({ed.energy ?? '—'}/10)</p>
                           <Slider value={ed.energy ?? 0} max={10} color="var(--violet)" onChange={v => patch('energy', v || undefined)} />
@@ -316,7 +421,7 @@ export default function HistoryPage() {
                           style={{ flex: 1, height: 34, borderRadius: 8, border: '1px solid var(--border)', background: 'none', cursor: 'default', fontSize: 13, color: 'var(--text-2)' }}>
                           Cancel
                         </button>
-                        <button onClick={() => saveEdit(log.date)} disabled={saving}
+                        <button onClick={() => setConfirm({ open: true, logDate: log.date })} disabled={saving}
                           style={{ flex: 2, height: 34, borderRadius: 8, border: 'none', background: 'var(--accent)', cursor: 'default', fontSize: 13, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                           {saving ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Save size={13} />}
                           {saving ? 'Saving…' : 'Save Changes'}
@@ -359,15 +464,28 @@ export default function HistoryPage() {
         })}
       </section>
 
-      {/* Confirm dialog (currently unused for logs since delete isn't surfaced here, but wired in) */}
+      {/* Confirm: save edit */}
       <ConfirmDialog
-        open={confirm.open}
-        title="Delete this day?"
-        message="This will permanently remove all data for this day. This cannot be undone."
-        confirmLabel="Delete"
-        danger
-        onConfirm={() => setConfirm({ open: false })}
+        open={confirm.open && Boolean(confirm.logDate)}
+        title="Save changes?"
+        message={`Update your log for ${confirm.logDate ? format(parseISO(confirm.logDate), 'EEEE, MMM d') : 'this day'}? This will overwrite the existing entry.`}
+        confirmLabel="Save"
+        onConfirm={() => { const d = confirm.logDate!; setConfirm({ open: false }); saveEdit(d) }}
         onCancel={() => setConfirm({ open: false })}
+      />
+
+      {/* Confirm: open past day (overwrite warning) */}
+      <ConfirmDialog
+        open={pickerConfirm.open}
+        title={pickerConfirm.existing ? 'Edit existing entry?' : 'Log this day?'}
+        message={
+          pickerConfirm.existing
+            ? `${pickerConfirm.date ? format(parseISO(pickerConfirm.date), 'EEEE, MMM d, yyyy') : 'This day'} already has data. You can view and update it.`
+            : `Open a new log for ${pickerConfirm.date ? format(parseISO(pickerConfirm.date), 'EEEE, MMM d, yyyy') : 'this day'} and fill it in.`
+        }
+        confirmLabel={pickerConfirm.existing ? 'Open & Edit' : 'Create Entry'}
+        onConfirm={confirmOpenPastDay}
+        onCancel={() => setPickerConfirm({ open: false, existing: false, date: '', log: null })}
       />
     </div>
   )
