@@ -2,14 +2,14 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { CalendarCheck, CheckSquare, Wallet, BarChart3, Clock } from 'lucide-react'
+import { CalendarCheck, CheckSquare, Wallet, BarChart3, UtensilsCrossed } from 'lucide-react'
 
 const tabs = [
-  { href: '/today',     icon: CalendarCheck, label: 'Today' },
-  { href: '/tasks',     icon: CheckSquare,   label: 'Tasks' },
-  { href: '/finance',   icon: Wallet,        label: 'Finance' },
-  { href: '/dashboard', icon: BarChart3,     label: 'Stats' },
-  { href: '/history',   icon: Clock,         label: 'History' },
+  { href: '/today',     icon: CalendarCheck,   label: 'Today'   },
+  { href: '/food',      icon: UtensilsCrossed, label: 'Food'    },
+  { href: '/tasks',     icon: CheckSquare,     label: 'Tasks'   },
+  { href: '/finance',   icon: Wallet,          label: 'Finance' },
+  { href: '/dashboard', icon: BarChart3,       label: 'Stats'   },
 ]
 
 export default function BottomNav() {

@@ -2,16 +2,18 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { CalendarCheck, CheckSquare, Wallet, BarChart3, Clock } from 'lucide-react'
+import { CalendarCheck, CheckSquare, Wallet, BarChart3, Clock, UtensilsCrossed, Activity } from 'lucide-react'
 import Logo from './Logo'
 import ThemeToggle from './ThemeToggle'
 
 const nav = [
-  { href: '/today',     icon: CalendarCheck, label: 'Today' },
-  { href: '/tasks',     icon: CheckSquare,   label: 'Tasks' },
-  { href: '/finance',   icon: Wallet,        label: 'Finance' },
-  { href: '/dashboard', icon: BarChart3,     label: 'Stats' },
-  { href: '/history',   icon: Clock,         label: 'History' },
+  { href: '/today',     icon: CalendarCheck,    label: 'Today'    },
+  { href: '/food',      icon: UtensilsCrossed,  label: 'Food'     },
+  { href: '/tasks',     icon: CheckSquare,      label: 'Tasks'    },
+  { href: '/finance',   icon: Wallet,           label: 'Finance'  },
+  { href: '/dashboard', icon: BarChart3,        label: 'Stats'    },
+  { href: '/history',   icon: Clock,            label: 'History'  },
+  { href: '/activity',  icon: Activity,         label: 'Log'      },
 ]
 
 export default function Sidebar() {
@@ -23,7 +25,7 @@ export default function Sidebar() {
       <div style={{ height: 52 }} data-tauri-drag-region />
 
       {/* Logo + name */}
-      <div className="px-4 pb-5 flex items-center gap-2.5" data-tauri-drag-region>
+      <div className="px-4 pb-4 flex items-center gap-2.5" data-tauri-drag-region>
         <Logo size={26} />
         <div>
           <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)', letterSpacing: '-0.2px' }}>Life OS</p>
