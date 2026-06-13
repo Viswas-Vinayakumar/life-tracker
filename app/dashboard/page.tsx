@@ -6,14 +6,12 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts'
-import { Flame, TrendingUp, Target, Trophy, Sparkles, RefreshCw, Lightbulb, Brain, Heart, Activity, Footprints, Dumbbell, BookOpen, Droplets, Moon, Apple, Link, Unlink } from 'lucide-react'
+import { Flame, TrendingUp, Target, Trophy, Sparkles, RefreshCw, Lightbulb, Brain, Dumbbell, BookOpen, Droplets, Moon, Apple } from 'lucide-react'
 import type { DailyLog, FoodEntry } from '@/types'
 import { getScoreColor, getScoreLabel } from '@/lib/scoring'
 import { getLogs, getFoodEntries, getFoodEntriesRange } from '@/lib/db'
 import { getLifeSummary, isOllamaRunning, type LifeSummary } from '@/lib/ollama'
-import { isGFitConnected, connectGoogleFit, clearGFitToken, fetchFitData, type FitDay } from '@/lib/googleFit'
 import { format as formatDate } from 'date-fns'
-import { toast } from 'sonner'
 
 const PIE_COLORS = ['#a78bfa', '#38bdf8', '#34d399', '#fbbf24', '#f87171']
 const TODAY = formatDate(new Date(), 'yyyy-MM-dd')
@@ -81,13 +79,6 @@ export default function DashboardPage() {
   const [ollamaOk, setOllamaOk] = useState<boolean | null>(null)
   const [summaryError, setSummaryError] = useState(false)
 
-  // Google Fit
-  const [gfitConnected, setGfitConnected] = useState(false)
-  const [gfitData, setGfitData] = useState<FitDay[]>([])
-  const [gfitLoading, setGfitLoading] = useState(false)
-  const [gfitError, setGfitError] = useState('')
-  const hasGfitKey = Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID)
-
   useEffect(() => {
     const end = TODAY
     const start = formatDate(subDays(new Date(), 29), 'yyyy-MM-dd')
@@ -95,46 +86,7 @@ export default function DashboardPage() {
       .then(([l, f, f30]) => { setLogs(l); setFood(f); setFood30(f30); setLoading(false) })
       .catch(() => setLoading(false))
     isOllamaRunning().then(setOllamaOk)
-    setGfitConnected(isGFitConnected())
   }, [])
-
-  useEffect(() => {
-    if (gfitConnected) loadFitData()
-  }, [gfitConnected]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const loadFitData = async () => {
-    setGfitLoading(true)
-    setGfitError('')
-    try {
-      const data = await fetchFitData(7)
-      setGfitData(data)
-    } catch { setGfitError('Failed to load fitness data') }
-    finally { setGfitLoading(false) }
-  }
-
-  const handleGfitConnect = async () => {
-    if (!hasGfitKey) {
-      toast.error('Add NEXT_PUBLIC_GOOGLE_CLIENT_ID to .env.local first')
-      return
-    }
-    setGfitLoading(true)
-    try {
-      await connectGoogleFit()
-      setGfitConnected(true)
-      toast.success('Google Fit connected')
-    } catch (e) {
-      setGfitError(e instanceof Error ? e.message : 'Auth failed')
-      toast.error('Google Fit auth failed')
-    }
-    setGfitLoading(false)
-  }
-
-  const handleGfitDisconnect = () => {
-    clearGFitToken()
-    setGfitConnected(false)
-    setGfitData([])
-    toast.success('Google Fit disconnected')
-  }
 
   const loadSummary = useCallback(async (force = false) => {
     if (!force) {
@@ -274,17 +226,6 @@ export default function DashboardPage() {
     healthComponents.reduce((s, c) => s + c.score * c.weight, 0)
   )
 
-  // Google Fit — last 7 days
-  const todayFit = gfitData.find(d => d.date === TODAY)
-  const avgSteps = gfitData.length ? Math.round(gfitData.reduce((s, d) => s + d.steps, 0) / gfitData.length) : 0
-  const avgHR = gfitData.filter(d => d.heart_rate_avg).length
-    ? Math.round(gfitData.filter(d => d.heart_rate_avg).reduce((s, d) => s + (d.heart_rate_avg ?? 0), 0) / gfitData.filter(d => d.heart_rate_avg).length)
-    : 0
-  const fitChartData = gfitData.map(d => ({
-    date: format(parseISO(d.date), 'MMM d'),
-    steps: d.steps,
-    hr: d.heart_rate_avg ?? 0,
-  }))
 
   return (
     <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 28, maxWidth: 1100 }}>
@@ -542,102 +483,6 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
-          </div>
-        )}
-      </section>
-
-      {/* ── Google Fit ─────────────────────────────────── */}
-      <section>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <p className="section-label" style={{ margin: 0 }}>Google Fit</p>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {gfitConnected && (
-              <button onClick={loadFitData} disabled={gfitLoading}
-                style={{ height: 28, padding: '0 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'none', cursor: 'default', fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                <RefreshCw size={10} style={{ animation: gfitLoading ? 'spin 1s linear infinite' : 'none' }} />
-                Sync
-              </button>
-            )}
-            <button
-              onClick={gfitConnected ? handleGfitDisconnect : handleGfitConnect}
-              disabled={gfitLoading}
-              style={{
-                height: 28, padding: '0 12px', borderRadius: 7, border: 'none', cursor: 'default', fontSize: 11, fontWeight: 600,
-                background: gfitConnected ? 'color-mix(in srgb, var(--error) 12%, transparent)' : 'var(--accent)',
-                color: gfitConnected ? 'var(--error)' : '#fff',
-                display: 'flex', alignItems: 'center', gap: 5, opacity: gfitLoading ? 0.7 : 1,
-              }}>
-              {gfitConnected ? <><Unlink size={11} /> Disconnect</> : <><Link size={11} /> Connect Google Fit</>}
-            </button>
-          </div>
-        </div>
-
-        {!gfitConnected && (
-          <div className="card" style={{ padding: '20px 20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 12, background: 'color-mix(in srgb, var(--success) 12%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Activity size={20} color="var(--success)" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Sync your steps, heart rate & more</p>
-                <p className="footnote">
-                  {hasGfitKey
-                    ? 'Click Connect to authorise Google Fit access. Data syncs automatically.'
-                    : 'Add NEXT_PUBLIC_GOOGLE_CLIENT_ID to .env.local from your Google Cloud Console to enable this.'}
-                </p>
-                {!hasGfitKey && (
-                  <p style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 6 }}>
-                    Setup: console.cloud.google.com → Enable Fitness API → OAuth client → add origin tauri://localhost
-                  </p>
-                )}
-              </div>
-            </div>
-            {gfitError && <p style={{ fontSize: 12, color: 'var(--error)', marginTop: 10 }}>{gfitError}</p>}
-          </div>
-        )}
-
-        {gfitConnected && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {/* Summary cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-              {[
-                { icon: <Footprints size={13} />, label: "Today's Steps", value: todayFit?.steps ?? 0, suffix: '', color: 'var(--success)' },
-                { icon: <Activity size={13} />, label: '7-Day Avg Steps', value: avgSteps, suffix: '', color: 'var(--accent)' },
-                { icon: <Heart size={13} />, label: 'Avg Heart Rate', value: avgHR || '—', suffix: avgHR ? ' bpm' : '', color: 'var(--error)' },
-                { icon: <Flame size={13} />, label: "Today's Cal Burn", value: todayFit?.calories_burned ?? 0, suffix: ' kcal', color: 'var(--warning)' },
-              ].map(({ icon, label, value, suffix, color }) => (
-                <div key={label} className="card" style={{ padding: '14px 16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, color, marginBottom: 6 }}>
-                    {icon}
-                    <span style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
-                  </div>
-                  <p className="tabular-nums" style={{ fontSize: 20, fontWeight: 700, color }}>
-                    {typeof value === 'number' ? value.toLocaleString() : value}
-                    <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 400 }}>{suffix}</span>
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            {/* Steps chart */}
-            {fitChartData.length > 0 && (
-              <div className="card" style={{ padding: '14px 14px 10px' }}>
-                <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Steps — Last 7 Days</p>
-                <ResponsiveContainer width="100%" height={120}>
-                  <BarChart data={fitChartData} margin={{ top: 2, right: 2, bottom: 0, left: -18 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-2)" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--text-3)' }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fontSize: 9, fill: 'var(--text-3)' }} tickLine={false} axisLine={false} />
-                    <Tooltip content={<ChartTip />} />
-                    <Bar dataKey="steps" name="Steps" fill="var(--success)" radius={[3, 3, 0, 0]} maxBarSize={28} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-
-            {gfitData.length === 0 && !gfitLoading && (
-              <p className="footnote" style={{ textAlign: 'center', padding: '12px 0' }}>No fitness data found for the last 7 days.</p>
-            )}
           </div>
         )}
       </section>
