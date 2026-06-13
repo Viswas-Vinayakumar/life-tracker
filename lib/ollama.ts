@@ -102,6 +102,57 @@ export async function parseFood(input: string): Promise<FoodNutrition> {
   throw new Error('no_ai')
 }
 
+// ─── Food / Nutrition AI Summary ─────────────────────────────────
+export interface FoodSummary {
+  headline: string          // e.g. "Well-balanced day with good protein"
+  rating: 'excellent' | 'good' | 'fair' | 'poor'
+  insight: string           // 2-3 sentences on the day's nutrition
+  tip: string               // one actionable suggestion
+  highlight: string         // best thing they ate today
+}
+
+export async function getFoodSummary(entries: FoodEntry[]): Promise<FoodSummary | null> {
+  if (!(await isOllamaRunning())) return null
+  if (entries.length < 1) return null
+
+  const totalCal = Math.round(entries.reduce((s, e) => s + (e.calories ?? 0), 0))
+  const totalProtein = Math.round(entries.reduce((s, e) => s + (e.protein ?? 0), 0))
+  const totalCarbs = Math.round(entries.reduce((s, e) => s + (e.carbs ?? 0), 0))
+  const totalFat = Math.round(entries.reduce((s, e) => s + (e.fat ?? 0), 0))
+  const totalFiber = Math.round(entries.reduce((s, e) => s + (e.fiber ?? 0), 0))
+  const foods = entries.map(e => e.food_name ?? e.raw_input).join(', ')
+
+  const model = await getBestModel()
+  const prompt = `You are a nutrition coach. Analyze today's food log and give a brief, personal summary.
+
+TODAY'S FOOD: ${foods}
+TOTALS: ${totalCal} kcal | ${totalProtein}g protein | ${totalCarbs}g carbs | ${totalFat}g fat | ${totalFiber}g fiber
+GOALS: 2200 kcal | 150g protein | 250g carbs | 70g fat | 30g fiber
+
+Respond ONLY with valid JSON, no markdown:
+{"headline":"one short punchy sentence about today's nutrition (max 10 words)","rating":"excellent|good|fair|poor","insight":"2 sentences about what stands out nutritionally today","tip":"one specific actionable tip for today or tomorrow","highlight":"the single best food choice they made today"}`
+
+  try {
+    const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(20000),
+      body: JSON.stringify({ model, stream: false, format: 'json', messages: [{ role: 'user', content: prompt }] }),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    const content = data.message?.content ?? data.response ?? ''
+    const parsed = typeof content === 'string' ? JSON.parse(content) : content
+    return {
+      headline: String(parsed.headline ?? ''),
+      rating: (['excellent', 'good', 'fair', 'poor'].includes(parsed.rating) ? parsed.rating : 'fair') as FoodSummary['rating'],
+      insight: String(parsed.insight ?? ''),
+      tip: String(parsed.tip ?? ''),
+      highlight: String(parsed.highlight ?? ''),
+    }
+  } catch { return null }
+}
+
 // ─── Life AI Summary ─────────────────────────────────────────────
 export interface LifeSummary {
   headline: string
