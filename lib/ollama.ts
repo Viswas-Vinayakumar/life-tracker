@@ -1,6 +1,6 @@
 // Local AI via Ollama — no tokens, no API keys, runs on your Mac
 // Install: brew install ollama && ollama pull llama3.2:3b
-// Docs: https://ollama.com
+import type { DailyLog, FoodEntry } from '@/types'
 
 const OLLAMA_BASE = 'http://127.0.0.1:11434'
 
@@ -19,16 +19,16 @@ export async function getOllamaModels(): Promise<string[]> {
   } catch { return [] }
 }
 
-// Returns best available model for the task
 async function getBestModel(): Promise<string> {
   const models = await getOllamaModels()
-  const preferred = ['llama3.2:3b', 'llama3.2', 'llama3.1', 'llama3', 'gemma3:4b', 'gemma3', 'mistral', 'phi3', 'phi4']
+  const preferred = ['llama3.2:3b', 'llama3.2', 'llama3.1', 'llama3', 'gemma3:4b', 'gemma3', 'mistral', 'phi4', 'phi3']
   for (const p of preferred) {
     if (models.some(m => m.startsWith(p))) return models.find(m => m.startsWith(p))!
   }
   return models[0] ?? 'llama3.2'
 }
 
+// ─── Food parsing ────────────────────────────────────────────────
 export interface FoodNutrition {
   food_name: string
   calories: number
@@ -42,44 +42,28 @@ export interface FoodNutrition {
 
 export async function parseFoodWithOllama(input: string): Promise<FoodNutrition> {
   const model = await getBestModel()
-
   const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     signal: AbortSignal.timeout(15000),
     body: JSON.stringify({
-      model,
-      stream: false,
-      format: 'json',
+      model, stream: false, format: 'json',
       messages: [{
         role: 'user',
-        content: `You are a nutrition expert. Parse this food input and return a JSON object with realistic nutritional estimates.
+        content: `You are a nutrition expert. Parse this food and return ONLY valid JSON (no markdown, no text before or after):
 
-Food input: "${input}"
+Food: "${input}"
 
-Return ONLY this JSON structure (no extra text, no markdown):
-{
-  "food_name": "clean display name for the food",
-  "calories": <integer, total calories>,
-  "protein": <decimal, grams of protein>,
-  "carbs": <decimal, grams of carbohydrates>,
-  "fat": <decimal, grams of fat>,
-  "fiber": <decimal, grams of fiber>,
-  "sugar": <decimal, grams of sugar>,
-  "sodium_mg": <integer, milligrams of sodium>
-}
+{"food_name":"string","calories":0,"protein":0,"carbs":0,"fat":0,"fiber":0,"sugar":0,"sodium_mg":0}
 
-Be realistic about portion sizes. If multiple foods, sum all values.`
+Be realistic. Sum values if multiple foods.`,
       }],
     }),
   })
-
   if (!res.ok) throw new Error(`Ollama error: ${res.status}`)
   const data = await res.json()
-
   const content = data.message?.content ?? data.response ?? ''
   const parsed = typeof content === 'string' ? JSON.parse(content) : content
-
   return {
     food_name: String(parsed.food_name ?? input),
     calories: Math.round(Number(parsed.calories) || 0),
@@ -93,12 +77,8 @@ Be realistic about portion sizes. If multiple foods, sum all values.`
 }
 
 export async function parseFood(input: string): Promise<FoodNutrition> {
-  // 1. Try Ollama (local, free, private)
-  if (await isOllamaRunning()) {
-    return parseFoodWithOllama(input)
-  }
+  if (await isOllamaRunning()) return parseFoodWithOllama(input)
 
-  // 2. Fall back to CalorieNinjas if key set
   const key = process.env.NEXT_PUBLIC_CALORIE_NINJAS_API_KEY
   if (key && key !== 'your_key_here') {
     const res = await fetch(
@@ -109,15 +89,89 @@ export async function parseFood(input: string): Promise<FoodNutrition> {
       const data = await res.json()
       const items = data.items ?? []
       if (items.length) {
-        const t = items.reduce((a: FoodNutrition, i: { calories: number; protein_g: number; carbohydrates_total_g: number; fat_total_g: number; fiber_g: number; sugar_g: number; sodium_mg: number; name: string }) => ({
+        type Item = { calories: number; protein_g: number; carbohydrates_total_g: number; fat_total_g: number; fiber_g: number; sugar_g: number; sodium_mg: number; name: string }
+        const t = items.reduce((a: FoodNutrition, i: Item) => ({
           food_name: '', calories: a.calories + i.calories, protein: a.protein + i.protein_g,
           carbs: a.carbs + i.carbohydrates_total_g, fat: a.fat + i.fat_total_g,
           fiber: a.fiber + i.fiber_g, sugar: a.sugar + i.sugar_g, sodium_mg: a.sodium_mg + i.sodium_mg,
         }), { food_name: '', calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium_mg: 0 })
-        return { ...t, food_name: items.map((i: { name: string }) => i.name).join(', ') }
+        return { ...t, food_name: items.map((i: Item) => i.name).join(', ') }
       }
     }
   }
-
   throw new Error('no_ai')
+}
+
+// ─── Life AI Summary ─────────────────────────────────────────────
+export interface LifeSummary {
+  headline: string
+  insight: string
+  suggestion: string
+  label: 'peak' | 'strong' | 'growing' | 'needs_work'
+  pattern: string
+}
+
+export async function getLifeSummary(logs: DailyLog[], food: FoodEntry[]): Promise<LifeSummary | null> {
+  if (!(await isOllamaRunning())) return null
+
+  const n = logs.length
+  if (n < 2) return null
+
+  const gymRate = Math.round(logs.filter(l => l.gym_done).length / n * 100)
+  const studyRate = Math.round(logs.filter(l => l.study_done).length / n * 100)
+  const amRate = Math.round(logs.filter(l => l.skincare_am).length / n * 100)
+  const pmRate = Math.round(logs.filter(l => l.skincare_pm).length / n * 100)
+  const avgSleep = logs.filter(l => l.sleep_hours).length > 0
+    ? (logs.reduce((s, l) => s + (l.sleep_hours ?? 0), 0) / logs.filter(l => l.sleep_hours).length).toFixed(1)
+    : 'not tracked'
+  const avgWater = (logs.reduce((s, l) => s + (l.water_glasses ?? 0), 0) / n).toFixed(1)
+  const avgScore = Math.round(logs.reduce((s, l) => s + (l.performance_score ?? 0), 0) / n)
+  const avgMood = logs.filter(l => l.mood).length
+    ? (logs.reduce((s, l) => s + (l.mood ?? 0), 0) / logs.filter(l => l.mood).length).toFixed(1)
+    : 'not tracked'
+
+  // Trend: compare last 7 days vs overall
+  const last7 = logs.slice(0, 7)
+  const last7Score = last7.length ? Math.round(last7.reduce((s, l) => s + (l.performance_score ?? 0), 0) / last7.length) : 0
+  const trend = last7Score > avgScore ? 'improving' : last7Score < avgScore ? 'declining' : 'steady'
+
+  const foodLogged = food.length
+  const avgCal = foodLogged ? Math.round(food.reduce((s, f) => s + (f.calories ?? 0), 0) / n) : 0
+
+  const model = await getBestModel()
+  const prompt = `You are a personal wellness coach AI. Analyze this person's life data and give a short, personal, insightful summary.
+
+DATA (last ${n} days):
+- Gym: ${gymRate}% days
+- Study: ${studyRate}% days
+- Skincare AM: ${amRate}%, PM: ${pmRate}%
+- Average sleep: ${avgSleep}h
+- Average water: ${avgWater} glasses/day
+- Average performance score: ${avgScore}/100
+- Recent trend (7d vs overall): ${trend}
+- Average mood: ${avgMood}/10
+- Avg daily calories logged: ${avgCal > 0 ? avgCal + ' kcal' : 'not tracked'}
+
+Respond with ONLY valid JSON, no markdown, no extra text:
+{"headline":"one punchy sentence about overall progress (max 12 words)","insight":"2-3 sentences identifying the strongest pattern or notable trend in their data","suggestion":"one specific actionable tip tailored to their weakest area","label":"peak|strong|growing|needs_work","pattern":"identify one interesting behavioral pattern in 1 sentence"}`
+
+  try {
+    const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(25000),
+      body: JSON.stringify({ model, stream: false, format: 'json', messages: [{ role: 'user', content: prompt }] }),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    const content = data.message?.content ?? data.response ?? ''
+    const parsed = typeof content === 'string' ? JSON.parse(content) : content
+    return {
+      headline: String(parsed.headline ?? ''),
+      insight: String(parsed.insight ?? ''),
+      suggestion: String(parsed.suggestion ?? ''),
+      label: (['peak', 'strong', 'growing', 'needs_work'].includes(parsed.label) ? parsed.label : 'growing') as LifeSummary['label'],
+      pattern: String(parsed.pattern ?? ''),
+    }
+  } catch { return null }
 }

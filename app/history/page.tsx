@@ -91,10 +91,10 @@ export default function HistoryPage() {
   const last30 = sorted.slice(0, 30)
 
   return (
-    <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 860 }}>
       <div>
         <h1 className="title-lg">History</h1>
-        <p className="footnote" style={{ marginTop: 4 }}>Last 90 days · {logs.length} logged · tap a day to expand, tap edit to modify</p>
+        <p className="footnote" style={{ marginTop: 4 }}>Last 90 days · {logs.length} logged · tap <strong>Edit</strong> on any row to update past data</p>
       </div>
 
       {/* 30-day heatmap */}
@@ -182,17 +182,18 @@ export default function HistoryPage() {
                   </div>
                 </button>
 
-                {/* Edit button */}
+                {/* Edit button — always visible */}
                 <button
                   onClick={e => { e.stopPropagation(); isEditing ? cancelEdit() : (setExpanded(log.date), startEdit(log)) }}
                   title={isEditing ? 'Cancel edit' : 'Edit this day'}
                   style={{
-                    width: 28, height: 28, borderRadius: 7, border: 'none', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: isEditing ? 'var(--bg-3)' : 'transparent',
-                    color: isEditing ? 'var(--text-2)' : 'var(--text-3)',
-                    transition: 'all 0.15s',
+                    display: 'flex', alignItems: 'center', gap: 4, padding: '5px 9px', borderRadius: 7, border: '1px solid var(--border-2)', cursor: 'default', fontSize: 11, fontWeight: 600,
+                    background: isEditing ? 'color-mix(in srgb, var(--error) 10%, transparent)' : 'var(--bg-2)',
+                    color: isEditing ? 'var(--error)' : 'var(--text-2)',
+                    transition: 'all 0.15s', flexShrink: 0,
                   }}>
-                  {isEditing ? <X size={13} /> : <Pencil size={13} />}
+                  {isEditing ? <X size={11} /> : <Pencil size={11} />}
+                  {isEditing ? 'Cancel' : 'Edit'}
                 </button>
               </div>
 

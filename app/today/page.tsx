@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { format } from 'date-fns'
-import { Droplets, Moon, Zap, Smile, ChevronDown, ChevronUp, Flame, Beef, Wheat, Loader2, Plus, X } from 'lucide-react'
+import { format, subDays } from 'date-fns'
+import Link from 'next/link'
+import { Droplets, Moon, Zap, Smile, ChevronDown, ChevronUp, Flame, Beef, Wheat, Loader2, Plus, X, CalendarDays } from 'lucide-react'
 import { toast } from 'sonner'
 import HabitToggle from '@/components/habits/HabitToggle'
 import ScoreRing from '@/components/habits/ScoreRing'
@@ -95,18 +96,28 @@ export default function TodayPage() {
     </div>
   )
 
+  const yesterday = format(subDays(new Date(), 1), 'EEEE, MMM d')
+
   return (
-    <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 680 }}>
       {/* ── Header ─────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
           <p className="callout">{GREETING}</p>
           <h1 className="title-lg" style={{ marginTop: 2 }}>{format(new Date(), 'EEEE, MMMM d')}</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: saveStatus === 'saving' ? 'var(--warning)' : saveStatus === 'saved' ? 'var(--success)' : 'transparent', transition: 'background 0.3s' }} />
-            <span className="footnote">
-              {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : `${score} pts today`}
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: saveStatus === 'saving' ? 'var(--warning)' : saveStatus === 'saved' ? 'var(--success)' : 'transparent', transition: 'background 0.3s' }} />
+              <span className="footnote">
+                {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : `${score} pts today`}
+              </span>
+            </div>
+            {/* Log yesterday shortcut */}
+            <Link href="/history" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 6, background: 'var(--bg-2)', border: '1px solid var(--border-2)', textDecoration: 'none', color: 'var(--text-3)', fontSize: 11, fontWeight: 500 }}
+              title={`Edit ${yesterday}`}>
+              <CalendarDays size={10} />
+              Edit {yesterday}
+            </Link>
           </div>
         </div>
         <ScoreRing score={score} size={96} />

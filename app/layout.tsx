@@ -3,6 +3,7 @@ import Script from 'next/script'
 import './globals.css'
 import Sidebar from '@/components/layout/Sidebar'
 import BottomNav from '@/components/layout/BottomNav'
+import NotificationScheduler from '@/components/notifications/NotificationScheduler'
 import { Toaster } from '@/components/ui/sonner'
 
 export const metadata: Metadata = {
@@ -23,7 +24,6 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      {/* Inline theme script runs before paint — no flash */}
       <Script id="theme-init" strategy="beforeInteractive">{`
         (function() {
           try {
@@ -38,9 +38,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="hidden md:flex" style={{ height: '100dvh', width: '100vw', overflow: 'hidden', background: 'var(--bg)' }}>
           <Sidebar />
           <main style={{ flex: 1, height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
-            {/* Title bar padding */}
+            {/* Traffic lights spacer */}
             <div style={{ height: 52, flexShrink: 0 }} data-tauri-drag-region />
-            <div style={{ maxWidth: 720, padding: '0 36px 48px' }}>
+            {/* Content — no maxWidth here; each page controls its own */}
+            <div style={{ padding: '0 40px 56px', width: '100%' }}>
               {children}
             </div>
           </main>
@@ -48,11 +49,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         {/* Mobile: bottom nav */}
         <div className="md:hidden" style={{ minHeight: '100dvh', paddingBottom: 76, background: 'var(--bg)' }}>
-          <div style={{ maxWidth: 480, margin: '0 auto', padding: '0 16px' }}>
+          <div style={{ maxWidth: 480, margin: '0 auto', padding: '16px 16px 0' }}>
             {children}
           </div>
           <BottomNav />
         </div>
+
+        <NotificationScheduler />
 
         <Toaster
           position="top-right"

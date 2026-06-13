@@ -17,6 +17,7 @@
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.1",
     "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-notification": "^2.3.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",

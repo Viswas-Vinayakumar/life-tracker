@@ -91,7 +91,7 @@ export default function FinancePage() {
   )
 
   return (
-    <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 960 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>

@@ -2,49 +2,41 @@
 import { openDB, type IDBPDatabase } from 'idb'
 
 const DB_NAME = 'life-os-v1'
-const DB_VERSION = 2
+const DB_VERSION = 3  // bumped: added activity_log store
 
-type DB = IDBPDatabase<{
-  daily_logs: { key: string; value: Record<string, unknown> }
-  food_entries: { key: string; value: Record<string, unknown> }
-  financial_entries: { key: string; value: Record<string, unknown> }
-  todos: { key: string; value: Record<string, unknown> }
-}>
+type StoreKey = 'daily_logs' | 'food_entries' | 'financial_entries' | 'todos' | 'activity_log'
+type DB = IDBPDatabase<Record<StoreKey, { key: string; value: Record<string, unknown> }>>
 
 let dbPromise: Promise<DB> | null = null
 
 function getDB(): Promise<DB> {
   if (!dbPromise) {
-    dbPromise = openDB<{
-      daily_logs: { key: string; value: Record<string, unknown> }
-      food_entries: { key: string; value: Record<string, unknown> }
-      financial_entries: { key: string; value: Record<string, unknown> }
-      todos: { key: string; value: Record<string, unknown> }
-    }>(DB_NAME, DB_VERSION, {
+    dbPromise = openDB<Record<StoreKey, { key: string; value: Record<string, unknown> }>>(DB_NAME, DB_VERSION, {
       upgrade(db) {
-        if (!db.objectStoreNames.contains('daily_logs')) db.createObjectStore('daily_logs', { keyPath: 'date' })
-        if (!db.objectStoreNames.contains('food_entries')) db.createObjectStore('food_entries', { keyPath: 'id' })
+        if (!db.objectStoreNames.contains('daily_logs'))        db.createObjectStore('daily_logs', { keyPath: 'date' })
+        if (!db.objectStoreNames.contains('food_entries'))      db.createObjectStore('food_entries', { keyPath: 'id' })
         if (!db.objectStoreNames.contains('financial_entries')) db.createObjectStore('financial_entries', { keyPath: 'id' })
-        if (!db.objectStoreNames.contains('todos')) db.createObjectStore('todos', { keyPath: 'id' })
+        if (!db.objectStoreNames.contains('todos'))             db.createObjectStore('todos', { keyPath: 'id' })
+        if (!db.objectStoreNames.contains('activity_log'))      db.createObjectStore('activity_log', { keyPath: 'id' })
       },
     })
   }
   return dbPromise as Promise<DB>
 }
 
-export async function offlineGet<T>(store: 'daily_logs' | 'food_entries' | 'financial_entries' | 'todos', key: string): Promise<T | undefined> {
+export async function offlineGet<T>(store: StoreKey, key: string): Promise<T | undefined> {
   try { return (await (await getDB()).get(store, key)) as T | undefined } catch { return undefined }
 }
 
-export async function offlineGetAll<T>(store: 'daily_logs' | 'food_entries' | 'financial_entries' | 'todos'): Promise<T[]> {
+export async function offlineGetAll<T>(store: StoreKey): Promise<T[]> {
   try { return (await (await getDB()).getAll(store)) as T[] } catch { return [] }
 }
 
-export async function offlinePut(store: 'daily_logs' | 'food_entries' | 'financial_entries' | 'todos', value: Record<string, unknown>): Promise<void> {
+export async function offlinePut(store: StoreKey, value: Record<string, unknown>): Promise<void> {
   try { await (await getDB()).put(store, value) } catch { /* non-blocking */ }
 }
 
-export async function offlinePutAll(store: 'daily_logs' | 'food_entries' | 'financial_entries' | 'todos', values: Record<string, unknown>[]): Promise<void> {
+export async function offlinePutAll(store: StoreKey, values: Record<string, unknown>[]): Promise<void> {
   try {
     const db = await getDB()
     const tx = db.transaction(store, 'readwrite')
@@ -52,6 +44,6 @@ export async function offlinePutAll(store: 'daily_logs' | 'food_entries' | 'fina
   } catch { /* non-blocking */ }
 }
 
-export async function offlineDelete(store: 'daily_logs' | 'food_entries' | 'financial_entries' | 'todos', key: string): Promise<void> {
+export async function offlineDelete(store: StoreKey, key: string): Promise<void> {
   try { await (await getDB()).delete(store, key) } catch { /* non-blocking */ }
 }

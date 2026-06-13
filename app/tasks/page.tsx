@@ -87,7 +87,7 @@ export default function TasksPage() {
   )
 
   return (
-    <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 680 }}>
       {/* Header */}
       <div>
         <h1 className="title-lg">Tasks</h1>
