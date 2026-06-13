@@ -2,38 +2,40 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { CalendarCheck, LayoutDashboard, Wallet, BarChart3 } from 'lucide-react'
+import { CalendarCheck, CheckSquare, Wallet, BarChart3, Clock } from 'lucide-react'
+import Logo from './Logo'
+import ThemeToggle from './ThemeToggle'
 
 const nav = [
-  { href: '/today', icon: CalendarCheck, label: 'Today' },
-  { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/finance', icon: Wallet, label: 'Finance' },
-  { href: '/history', icon: BarChart3, label: 'History' },
+  { href: '/today',     icon: CalendarCheck, label: 'Today' },
+  { href: '/tasks',     icon: CheckSquare,   label: 'Tasks' },
+  { href: '/finance',   icon: Wallet,        label: 'Finance' },
+  { href: '/dashboard', icon: BarChart3,     label: 'Stats' },
+  { href: '/history',   icon: Clock,         label: 'History' },
 ]
 
 export default function Sidebar() {
   const pathname = usePathname()
 
   return (
-    <aside className="sidebar-vibrancy flex flex-col w-[200px] shrink-0 h-full select-none">
-      {/* Traffic-light padding — macOS titlebar overlay area */}
-      <div className="h-[52px] w-full shrink-0" data-tauri-drag-region />
+    <aside className="sidebar flex flex-col shrink-0 h-full select-none" style={{ width: 'var(--sidebar-w)' }}>
+      {/* Traffic light spacer */}
+      <div style={{ height: 52 }} data-tauri-drag-region />
 
-      {/* App name */}
-      <div className="px-4 pb-5" data-tauri-drag-region>
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">Life OS</p>
+      {/* Logo + name */}
+      <div className="px-4 pb-5 flex items-center gap-2.5" data-tauri-drag-region>
+        <Logo size={26} />
+        <div>
+          <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)', letterSpacing: '-0.2px' }}>Life OS</p>
+        </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 px-2 space-y-0.5">
+      {/* Nav */}
+      <nav style={{ flex: 1, padding: '0 8px' }} className="space-y-0.5">
         {nav.map(({ href, icon: Icon, label }) => {
           const active = pathname === href || (href === '/today' && pathname === '/')
           return (
-            <Link key={href} href={href}
-              className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150
-                ${active
-                  ? 'bg-primary/20 text-primary'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-white/5'}`}>
+            <Link key={href} href={href} className={`nav-item ${active ? 'active' : ''}`}>
               <Icon size={15} strokeWidth={active ? 2.2 : 1.8} />
               {label}
             </Link>
@@ -41,9 +43,10 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Bottom version */}
-      <div className="px-4 py-4">
-        <p className="text-[10px] text-muted-foreground/40">v1.0.0</p>
+      {/* Bottom */}
+      <div style={{ padding: '12px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border-2)' }}>
+        <p style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500 }}>v1.0</p>
+        <ThemeToggle />
       </div>
     </aside>
   )

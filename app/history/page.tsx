@@ -6,14 +6,17 @@ import { Check, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { getScoreColor, getScoreLabel } from '@/lib/scoring'
 import { getLogs } from '@/lib/db'
 import type { DailyLog } from '@/types'
-import { Separator } from '@/components/ui/separator'
 
 function HabitDot({ done }: { done: boolean }) {
   return (
-    <div className={`w-5 h-5 rounded-full flex items-center justify-center transition-colors ${done ? 'bg-primary/20' : 'bg-secondary'}`}>
+    <div style={{
+      width: 18, height: 18, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: done ? 'color-mix(in srgb, var(--accent) 18%, transparent)' : 'var(--bg-3)',
+      transition: 'background 0.15s',
+    }}>
       {done
-        ? <Check size={10} strokeWidth={3} className="text-primary" />
-        : <X size={9} strokeWidth={2} className="text-muted-foreground/25" />}
+        ? <Check size={9} strokeWidth={3} color="var(--accent)" />
+        : <X size={8} strokeWidth={2} color="var(--text-3)" style={{ opacity: 0.3 }} />}
     </div>
   )
 }
@@ -27,103 +30,114 @@ export default function HistoryPage() {
     getLogs(90).then(data => { setLogs(data); setLoading(false) }).catch(() => setLoading(false))
   }, [])
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <div className="w-7 h-7 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-      </div>
-    )
-  }
+  if (loading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 12, color: 'var(--text-3)' }}>
+      <div style={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid var(--accent)', borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
+    </div>
+  )
 
   const sorted = [...logs].sort((a, b) => b.date.localeCompare(a.date))
+  const last30 = sorted.slice(0, 30)
 
   return (
-    <div className="space-y-7">
+    <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {/* Header */}
       <div>
-        <h1 className="text-[26px] font-semibold tracking-tight">History</h1>
-        <p className="text-[13px] text-muted-foreground mt-0.5">Last 90 days · {logs.length} logged</p>
+        <h1 className="title-lg">History</h1>
+        <p className="footnote" style={{ marginTop: 4 }}>Last 90 days · {logs.length} logged</p>
       </div>
 
-      {/* Habit heatmap grid */}
-      <section className="space-y-3">
-        <h2 className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">30-Day Habit Grid</h2>
-        <div className="bg-card rounded-2xl p-5 border border-border overflow-x-auto">
-          <div className="min-w-[500px]">
-            <div className="grid gap-1" style={{ gridTemplateColumns: '80px repeat(30, 1fr)' }}>
-              {/* Header row */}
-              <div />
-              {sorted.slice(0, 30).reverse().map(l => (
-                <div key={l.date} className="text-center text-[8px] text-muted-foreground/50">
-                  {format(parseISO(l.date), 'd')}
-                </div>
-              ))}
+      {/* 30-day habit heatmap */}
+      {last30.length > 0 && (
+        <section>
+          <p className="section-label">30-Day Grid</p>
+          <div className="card" style={{ padding: '14px 16px', overflowX: 'auto' }}>
+            <div style={{ minWidth: 480 }}>
+              <div style={{ display: 'grid', gap: 4, gridTemplateColumns: '72px repeat(30, 1fr)' }}>
+                {/* Header */}
+                <div />
+                {[...last30].reverse().map(l => (
+                  <div key={l.date} style={{ textAlign: 'center', fontSize: 8, color: 'var(--text-3)' }}>
+                    {format(parseISO(l.date), 'd')}
+                  </div>
+                ))}
 
-              {/* Habit rows */}
-              {[
-                { key: 'gym_done' as const, label: '🏋️ Gym' },
-                { key: 'study_done' as const, label: '📚 Study' },
-                { key: 'skincare_am' as const, label: '☀️ AM' },
-                { key: 'skincare_pm' as const, label: '🌙 PM' },
-              ].map(({ key, label }) => (
-                <>
-                  <span key={`label-${key}`} className="text-[10px] text-muted-foreground text-right pr-2 self-center">{label}</span>
-                  {sorted.slice(0, 30).reverse().map(l => (
-                    <div key={`${key}-${l.date}`}
-                      className={`w-full aspect-square rounded-sm transition-colors ${l[key] ? 'bg-primary/60' : 'bg-secondary/60'}`} />
-                  ))}
-                </>
-              ))}
+                {/* Rows */}
+                {[
+                  { key: 'gym_done' as const, label: '🏋️ Gym', color: 'var(--violet)' },
+                  { key: 'study_done' as const, label: '📚 Study', color: 'var(--cyan)' },
+                  { key: 'skincare_am' as const, label: '☀️ AM', color: 'var(--amber)' },
+                  { key: 'skincare_pm' as const, label: '🌙 PM', color: 'var(--indigo)' },
+                ].map(({ key, label, color }) => (
+                  <>
+                    <span key={`label-${key}`} style={{ fontSize: 10, color: 'var(--text-3)', textAlign: 'right', paddingRight: 8, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                      {label}
+                    </span>
+                    {[...last30].reverse().map(l => (
+                      <div key={`${key}-${l.date}`}
+                        style={{
+                          aspectRatio: '1', borderRadius: 3,
+                          background: l[key] ? `color-mix(in srgb, ${color} 60%, transparent)` : 'var(--bg-3)',
+                          transition: 'background 0.15s',
+                        }}
+                        title={`${label}: ${format(parseISO(l.date), 'MMM d')} — ${l[key] ? 'Done' : 'Missed'}`}
+                      />
+                    ))}
+                  </>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
-      <Separator />
+      {/* Divider */}
+      <div style={{ height: 1, background: 'var(--border-2)' }} />
 
       {/* Log list */}
-      <section className="space-y-2">
-        <h2 className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">All Days</h2>
+      <section style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <p className="section-label">All Days</p>
         {sorted.length === 0 ? (
-          <div className="bg-card rounded-2xl p-10 border border-border text-center text-muted-foreground">
-            <p className="text-3xl mb-3">📅</p>
-            <p className="text-[13px]">No history yet</p>
+          <div className="card" style={{ padding: '48px 0', textAlign: 'center', color: 'var(--text-3)' }}>
+            <p style={{ fontSize: 32, marginBottom: 8 }}>📅</p>
+            <p style={{ fontSize: 13 }}>No history yet</p>
           </div>
-        ) : sorted.map(log => {
+        ) : sorted.map((log, idx) => {
           const score = log.performance_score ?? 0
           const color = getScoreColor(score)
           const isExpanded = expanded === log.date
 
           return (
-            <div key={log.date} className="bg-card rounded-2xl border border-border overflow-hidden">
+            <div key={log.date} className="card" style={{ overflow: 'hidden', animation: `fade-up 0.15s ${idx * 0.02}s ease both` }}>
               <button
                 onClick={() => setExpanded(isExpanded ? null : log.date)}
-                className="w-full flex items-center justify-between px-4 py-3.5 transition-colors hover:bg-white/2">
-                <div className="flex items-center gap-3">
-                  <div className="text-left">
-                    <p className="text-[13px] font-semibold">{format(parseISO(log.date), 'EEEE, MMM d')}</p>
-                    <div className="flex items-center gap-1.5 mt-1.5">
-                      <HabitDot done={log.gym_done} />
-                      <HabitDot done={log.study_done} />
-                      <HabitDot done={log.skincare_am} />
-                      <HabitDot done={log.skincare_pm} />
-                      <span className="text-[10px] text-muted-foreground ml-1">
-                        {[log.gym_done, log.study_done, log.skincare_am, log.skincare_pm].filter(Boolean).length}/4
-                      </span>
-                    </div>
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'none', border: 'none', cursor: 'default', textAlign: 'left' }}>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 600 }}>{format(parseISO(log.date), 'EEEE, MMM d')}</p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 5 }}>
+                    <HabitDot done={log.gym_done} />
+                    <HabitDot done={log.study_done} />
+                    <HabitDot done={log.skincare_am} />
+                    <HabitDot done={log.skincare_pm} />
+                    <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 3 }}>
+                      {[log.gym_done, log.study_done, log.skincare_am, log.skincare_pm].filter(Boolean).length}/4
+                    </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
-                    <span className="text-xl font-bold tabular-nums" style={{ color }}>{score}</span>
-                    <p className="text-[10px] font-medium" style={{ color }}>{getScoreLabel(score)}</p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ textAlign: 'right' }}>
+                    <span className="tabular-nums" style={{ fontSize: 20, fontWeight: 700, color }}>{score}</span>
+                    <p style={{ fontSize: 10, fontWeight: 600, color }}>{getScoreLabel(score)}</p>
                   </div>
-                  {isExpanded ? <ChevronUp size={13} className="text-muted-foreground" /> : <ChevronDown size={13} className="text-muted-foreground" />}
+                  {isExpanded
+                    ? <ChevronUp size={12} color="var(--text-3)" />
+                    : <ChevronDown size={12} color="var(--text-3)" />}
                 </div>
               </button>
 
               {isExpanded && (
-                <div className="px-4 pb-4 border-t border-border pt-3 slide-up">
-                  <div className="grid grid-cols-3 gap-2 text-[12px]">
+                <div style={{ padding: '0 14px 14px', borderTop: '1px solid var(--border-2)', paddingTop: 12, animation: 'fade-up 0.15s ease both' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, fontSize: 12 }}>
                     {[
                       { label: '🏋️ Gym', value: log.gym_done ? (log.gym_notes || 'Done ✓') : 'Skipped', done: log.gym_done },
                       { label: '📚 Study', value: log.study_done ? (log.study_notes || 'Done ✓') : 'Skipped', done: log.study_done },
@@ -132,16 +146,19 @@ export default function HistoryPage() {
                       { label: '😊 Mood', value: log.mood ? `${log.mood}/10` : '—', done: !!log.mood },
                       { label: '⚡ Energy', value: log.energy ? `${log.energy}/10` : '—', done: !!log.energy },
                     ].map(({ label, value, done }) => (
-                      <div key={label} className={`rounded-xl p-2.5 ${done ? 'bg-primary/8' : 'bg-secondary/50'}`}>
-                        <p className="text-muted-foreground text-[10px] mb-0.5">{label}</p>
-                        <p className={`font-medium truncate text-[12px] ${done ? 'text-foreground' : 'text-muted-foreground'}`}>{value}</p>
+                      <div key={label} style={{
+                        padding: '8px 10px', borderRadius: 8,
+                        background: done ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'var(--bg-2)',
+                      }}>
+                        <p style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 2 }}>{label}</p>
+                        <p style={{ fontSize: 12, fontWeight: 500, color: done ? 'var(--text-1)' : 'var(--text-3)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{value}</p>
                       </div>
                     ))}
                   </div>
                   {log.journal && (
-                    <div className="bg-secondary/50 rounded-xl p-3 mt-2">
-                      <p className="text-[10px] text-muted-foreground mb-1">Journal</p>
-                      <p className="text-[12px] text-foreground">{log.journal}</p>
+                    <div style={{ padding: '10px 12px', borderRadius: 8, background: 'var(--bg-2)', marginTop: 6 }}>
+                      <p style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3 }}>Journal</p>
+                      <p style={{ fontSize: 12 }}>{log.journal}</p>
                     </div>
                   )}
                 </div>

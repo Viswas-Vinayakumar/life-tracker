@@ -2,176 +2,171 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { format } from 'date-fns'
-import { Droplets, Moon, Zap, Smile, Check, BookOpen, ChevronDown, ChevronUp } from 'lucide-react'
+import { Droplets, Moon, Zap, Smile, ChevronDown, ChevronUp, Flame, Beef, Wheat, Loader2, Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import HabitToggle from '@/components/habits/HabitToggle'
 import ScoreRing from '@/components/habits/ScoreRing'
-import FoodLogger from '@/components/food/FoodLogger'
-import FinanceWidget from '@/components/finance/FinanceWidget'
-import { Separator } from '@/components/ui/separator'
 import { calculateScore } from '@/lib/scoring'
-import { getLog, upsertLog, getFoodEntries, getFinanceEntries } from '@/lib/db'
-import type { DailyLog, FoodEntry, FinancialEntry } from '@/types'
+import { getLog, upsertLog, getFoodEntries, addFoodEntry, deleteFoodEntry, parseFood } from '@/lib/db'
+import { isOllamaRunning } from '@/lib/ollama'
+import type { DailyLog, FoodEntry } from '@/types'
 
-const today = format(new Date(), 'yyyy-MM-dd')
-const todayMonth = format(new Date(), 'yyyy-MM')
-const hour = new Date().getHours()
-const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening'
+const TODAY = format(new Date(), 'yyyy-MM-dd')
+const H = new Date().getHours()
+const GREETING = H < 5 ? 'Good Night' : H < 12 ? 'Good Morning' : H < 17 ? 'Good Afternoon' : 'Good Evening'
 
-const defaultLog: DailyLog = {
-  date: today,
-  gym_done: false, gym_notes: '',
-  study_done: false, study_notes: '',
-  skincare_am: false, skincare_pm: false,
-  water_glasses: 0,
-}
+const DEFAULT: DailyLog = { date: TODAY, gym_done: false, gym_notes: '', study_done: false, study_notes: '', skincare_am: false, skincare_pm: false, water_glasses: 0 }
 
 export default function TodayPage() {
-  const [log, setLog] = useState<DailyLog>(defaultLog)
-  const [foodEntries, setFoodEntries] = useState<FoodEntry[]>([])
-  const [financeEntries, setFinanceEntries] = useState<FinancialEntry[]>([])
+  const [log, setLog] = useState<DailyLog>(DEFAULT)
+  const [food, setFood] = useState<FoodEntry[]>([])
+  const [ollamaOk, setOllamaOk] = useState<boolean | null>(null)
+  const [foodInput, setFoodInput] = useState('')
+  const [mealType, setMealType] = useState<FoodEntry['meal_type']>('snack')
+  const [parsing, setParsing] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
-  const [expandVitals, setExpandVitals] = useState(false)
-  const [journalOpen, setJournalOpen] = useState(false)
+  const [showVitals, setShowVitals] = useState(false)
+  const [showFood, setShowFood] = useState(false)
   const [loaded, setLoaded] = useState(false)
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const debounce = useRef<ReturnType<typeof setTimeout>>(undefined)
 
-  const score = calculateScore(log, foodEntries)
+  const score = calculateScore(log, food)
 
   useEffect(() => {
-    Promise.all([
-      getLog(today),
-      getFoodEntries(today),
-      getFinanceEntries(todayMonth),
-    ]).then(([logData, food, finance]) => {
-      if (logData) setLog({ ...defaultLog, ...logData })
-      setFoodEntries(food)
-      setFinanceEntries(finance.filter(e => e.date === today))
-      setLoaded(true)
-    }).catch(() => setLoaded(true))
+    Promise.all([getLog(TODAY), getFoodEntries(TODAY), isOllamaRunning()])
+      .then(([l, f, ollama]) => {
+        if (l) setLog({ ...DEFAULT, ...l })
+        setFood(f)
+        setOllamaOk(ollama)
+        setLoaded(true)
+      }).catch(() => setLoaded(true))
   }, [])
 
-  const saveLog = useCallback(async (updated: DailyLog) => {
+  const save = useCallback(async (updated: DailyLog) => {
     setSaveStatus('saving')
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(async () => {
-      try {
-        const sc = calculateScore(updated, foodEntries)
-        await upsertLog({ ...updated, performance_score: sc })
-        setSaveStatus('saved')
-        setTimeout(() => setSaveStatus('idle'), 1500)
-      } catch { toast.error('Save failed') }
-    }, 400)
-  }, [foodEntries])
+    if (debounce.current) clearTimeout(debounce.current)
+    debounce.current = setTimeout(async () => {
+      const sc = calculateScore(updated, food)
+      await upsertLog({ ...updated, performance_score: sc })
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus('idle'), 1200)
+    }, 500)
+  }, [food])
 
-  const update = (partial: Partial<DailyLog>) => {
-    const next = { ...log, ...partial }
-    setLog(next)
-    saveLog(next)
+  const update = (patch: Partial<DailyLog>) => {
+    const next = { ...log, ...patch }
+    setLog(next); save(next)
   }
 
-  if (!loaded) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-7 h-7 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-          <p className="text-sm text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    )
+  const handleAddFood = async () => {
+    if (!foodInput.trim()) return
+    setParsing(true)
+    try {
+      const nutrition = await parseFood(foodInput.trim())
+      const entry = await addFoodEntry({ date: TODAY, raw_input: foodInput.trim(), meal_type: mealType, ...nutrition })
+      setFood(prev => [...prev, entry])
+      setFoodInput('')
+      toast.success(`${nutrition.food_name} — ${nutrition.calories} kcal`)
+    } catch (e) {
+      const err = e instanceof Error ? e.message : ''
+      if (err === 'no_ai') toast.error('No AI available. Install Ollama or add CalorieNinjas key.')
+      else toast.error('Could not parse food')
+    } finally { setParsing(false) }
   }
 
-  const habitsComplete = [log.gym_done, log.study_done, log.skincare_am, log.skincare_pm].filter(Boolean).length
+  const handleRemoveFood = async (id: string) => {
+    await deleteFoodEntry(id)
+    setFood(prev => prev.filter(e => e.id !== id))
+  }
+
+  const foodTotals = food.reduce((a, e) => ({
+    cal: a.cal + (e.calories ?? 0), pro: a.pro + (e.protein ?? 0),
+    carb: a.carb + (e.carbs ?? 0), fat: a.fat + (e.fat ?? 0),
+  }), { cal: 0, pro: 0, carb: 0, fat: 0 })
+
+  if (!loaded) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 12, color: 'var(--text-3)' }}>
+      <div style={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid var(--accent)', borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
+      <span style={{ fontSize: 14 }}>Loading…</span>
+    </div>
+  )
 
   return (
-    <div className="space-y-7 pt-0 md:pt-2">
-      {/* ─── Header ─────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between">
+    <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {/* ── Header ─────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
-          <p className="text-sm text-muted-foreground font-medium">{greeting}</p>
-          <h1 className="text-[26px] font-semibold tracking-tight mt-0.5 text-foreground">
-            {format(new Date(), 'EEEE, MMMM d')}
-          </h1>
-          <div className="flex items-center gap-2 mt-1.5">
-            <div className={`h-1.5 w-1.5 rounded-full transition-colors ${
-              saveStatus === 'saving' ? 'bg-yellow-400 animate-pulse' :
-              saveStatus === 'saved' ? 'bg-green-400' : 'bg-transparent'
-            }`} />
-            <p className="text-[12px] text-muted-foreground">
-              {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : `${habitsComplete}/4 habits · ${score} pts`}
-            </p>
+          <p className="callout">{GREETING}</p>
+          <h1 className="title-lg" style={{ marginTop: 2 }}>{format(new Date(), 'EEEE, MMMM d')}</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: saveStatus === 'saving' ? 'var(--warning)' : saveStatus === 'saved' ? 'var(--success)' : 'transparent', transition: 'background 0.3s' }} />
+            <span className="footnote">
+              {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : `${score} pts today`}
+            </span>
           </div>
         </div>
-        <ScoreRing score={score} size={100} />
+        <ScoreRing score={score} size={96} />
       </div>
 
-      <Separator />
+      {/* Divider */}
+      <div style={{ height: 1, background: 'var(--border-2)' }} />
 
-      {/* ─── Habits ─────────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <h2 className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-          Habits
-        </h2>
-
-        {/* Gym + Study: full width */}
-        <div className="space-y-2.5">
-          <HabitToggle
-            icon="🏋️" label="Gym" done={log.gym_done} notes={log.gym_notes}
-            color="#a78bfa" hasNotes notesPlaceholder="What did you train? e.g. Push day, 5k run"
-            onToggle={(done) => update({ gym_done: done })}
-            onNotes={(notes) => update({ gym_notes: notes })} points={20}
-          />
-          <HabitToggle
-            icon="📚" label="Study" done={log.study_done} notes={log.study_notes}
-            color="#38bdf8" hasNotes notesPlaceholder="What did you study? e.g. DSA, System Design"
-            onToggle={(done) => update({ study_done: done })}
-            onNotes={(notes) => update({ study_notes: notes })} points={20}
-          />
-        </div>
-
-        {/* Skincare: side by side */}
-        <div className="grid grid-cols-2 gap-2.5">
+      {/* ── Habits ─────────────────────────────────────────── */}
+      <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <p className="section-label">Habits</p>
+        <HabitToggle icon="🏋️" label="Gym" done={log.gym_done} notes={log.gym_notes}
+          color="var(--violet)" colorBg="var(--violet-2)" hasNotes points={20}
+          notesPlaceholder="What did you train? e.g. Push day, 5k run"
+          onToggle={d => update({ gym_done: d })} onNotes={n => update({ gym_notes: n })} />
+        <HabitToggle icon="📚" label="Study" done={log.study_done} notes={log.study_notes}
+          color="var(--cyan)" colorBg="var(--cyan-2)" hasNotes points={20}
+          notesPlaceholder="What did you study? e.g. DSA, chapter 5"
+          onToggle={d => update({ study_done: d })} onNotes={n => update({ study_notes: n })} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <HabitToggle icon="☀️" label="Skincare AM" done={log.skincare_am}
-            color="#fbbf24" onToggle={(done) => update({ skincare_am: done })} points={10} />
+            color="var(--amber)" colorBg="var(--warning-2)" points={10}
+            onToggle={d => update({ skincare_am: d })} />
           <HabitToggle icon="🌙" label="Skincare PM" done={log.skincare_pm}
-            color="#818cf8" onToggle={(done) => update({ skincare_pm: done })} points={10} />
+            color="var(--indigo)" colorBg="var(--indigo-2)" points={10}
+            onToggle={d => update({ skincare_pm: d })} />
         </div>
       </section>
 
-      <Separator />
+      {/* Divider */}
+      <div style={{ height: 1, background: 'var(--border-2)' }} />
 
-      {/* ─── Vitals ─────────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <button onClick={() => setExpandVitals(v => !v)}
-          className="w-full flex items-center justify-between group">
-          <h2 className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Vitals</h2>
-          <div className="flex items-center gap-3 text-[12px] text-muted-foreground">
+      {/* ── Vitals ─────────────────────────────────────────── */}
+      <section>
+        <button
+          onClick={() => setShowVitals(v => !v)}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'default', padding: 0 }}>
+          <p className="section-label">Vitals</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-3)', fontSize: 12 }}>
             <span>💧 {log.water_glasses}/8</span>
             {log.sleep_hours && <span>😴 {log.sleep_hours}h</span>}
             {log.mood && <span>😊 {log.mood}/10</span>}
-            {expandVitals ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            {showVitals ? <ChevronUp size={12} strokeWidth={2} /> : <ChevronDown size={12} strokeWidth={2} />}
           </div>
         </button>
 
-        {expandVitals && (
-          <div className="space-y-3 slide-up">
+        {showVitals && (
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8, animation: 'fade-up 0.2s ease both' }}>
             {/* Water */}
-            <div className="bg-card border border-border rounded-2xl p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Droplets size={14} className="text-sky-400" />
-                  <span className="text-[13px] font-medium">Water</span>
+            <div className="card" style={{ padding: '12px 14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Droplets size={14} color="var(--cyan)" strokeWidth={1.8} />
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>Water</span>
                 </div>
-                <span className="text-[13px] font-semibold text-sky-400 tabular-nums">{log.water_glasses} / 8</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--cyan)' }}>{log.water_glasses}/8 glasses</span>
               </div>
-              <div className="flex gap-1.5 flex-wrap">
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {Array.from({ length: 10 }, (_, i) => (
-                  <button key={i}
-                    onClick={() => update({ water_glasses: i < log.water_glasses ? i : i + 1 })}
-                    className={`w-8 h-8 rounded-xl text-sm transition-all duration-150 active:scale-90
-                      ${i < log.water_glasses
-                        ? 'bg-sky-500/20 border border-sky-400/40'
-                        : 'bg-secondary border border-transparent text-muted-foreground/40'}`}>
+                  <button key={i} onClick={() => update({ water_glasses: i < log.water_glasses ? i : i + 1 })}
+                    style={{ width: 32, height: 32, borderRadius: 8, border: 'none', cursor: 'default', fontSize: 16,
+                      background: i < log.water_glasses ? 'var(--cyan-2)' : 'var(--bg-2)',
+                      outline: i < log.water_glasses ? '1.5px solid var(--cyan)' : 'none',
+                      transition: 'all 0.15s ease' }}>
                     💧
                   </button>
                 ))}
@@ -179,24 +174,22 @@ export default function TodayPage() {
             </div>
 
             {/* Sleep */}
-            <div className="bg-card border border-border rounded-2xl p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Moon size={14} className="text-indigo-400" />
-                  <span className="text-[13px] font-medium">Sleep</span>
+            <div className="card" style={{ padding: '12px 14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Moon size={14} color="var(--indigo)" strokeWidth={1.8} />
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>Sleep</span>
                 </div>
-                <span className="text-[13px] font-semibold text-indigo-400">
-                  {log.sleep_hours ? `${log.sleep_hours}h` : '—'}
-                </span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--indigo)' }}>{log.sleep_hours ? `${log.sleep_hours}h` : '—'}</span>
               </div>
-              <div className="flex gap-1.5 flex-wrap">
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                 {[4, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10].map(h => (
-                  <button key={h}
-                    onClick={() => update({ sleep_hours: log.sleep_hours === h ? undefined : h })}
-                    className={`px-3 py-1.5 rounded-xl text-[12px] font-medium transition-all active:scale-90
-                      ${log.sleep_hours === h
-                        ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-400/40'
-                        : 'bg-secondary text-muted-foreground'}`}>
+                  <button key={h} onClick={() => update({ sleep_hours: log.sleep_hours === h ? undefined : h })}
+                    style={{ padding: '5px 10px', borderRadius: 7, border: 'none', cursor: 'default', fontSize: 12, fontWeight: 600,
+                      background: log.sleep_hours === h ? 'var(--indigo-2)' : 'var(--bg-2)',
+                      color: log.sleep_hours === h ? 'var(--indigo)' : 'var(--text-2)',
+                      outline: log.sleep_hours === h ? '1.5px solid var(--indigo)' : 'none',
+                      transition: 'all 0.15s ease' }}>
                     {h}h
                   </button>
                 ))}
@@ -204,23 +197,25 @@ export default function TodayPage() {
             </div>
 
             {/* Mood + Energy */}
-            <div className="grid grid-cols-2 gap-2.5">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               {[
-                { key: 'mood' as const, icon: <Smile size={13} className="text-yellow-400" />, label: 'Mood', val: log.mood, color: 'yellow' },
-                { key: 'energy' as const, icon: <Zap size={13} className="text-orange-400" />, label: 'Energy', val: log.energy, color: 'orange' },
-              ].map(({ key, icon, label, val, color }) => (
-                <div key={key} className="bg-card border border-border rounded-2xl p-3">
-                  <div className="flex items-center gap-1.5 mb-2.5">
-                    {icon}
-                    <span className="text-[12px] font-medium">{label}</span>
-                    <span className={`ml-auto text-[12px] font-semibold text-${color}-400`}>{val ?? '—'}</span>
+                { key: 'mood' as const, icon: <Smile size={13} strokeWidth={1.8} />, label: 'Mood', color: 'var(--warning)', val: log.mood },
+                { key: 'energy' as const, icon: <Zap size={13} strokeWidth={1.8} />, label: 'Energy', color: 'var(--violet)', val: log.energy },
+              ].map(({ key, icon, label, color, val }) => (
+                <div key={key} className="card" style={{ padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <span style={{ color }}>{icon}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color }}>{val ?? '—'}</span>
                   </div>
-                  <div className="flex gap-1 flex-wrap">
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                     {[1,2,3,4,5,6,7,8,9,10].map(n => (
-                      <button key={n}
-                        onClick={() => update({ [key]: val === n ? undefined : n })}
-                        className={`w-6 h-6 rounded-lg text-[11px] font-medium transition-all active:scale-90
-                          ${val === n ? `bg-${color}-500/20 text-${color}-300 border border-${color}-400/40` : 'bg-secondary text-muted-foreground'}`}>
+                      <button key={n} onClick={() => update({ [key]: val === n ? undefined : n })}
+                        style={{ width: 24, height: 24, borderRadius: 6, border: 'none', cursor: 'default', fontSize: 11, fontWeight: 700,
+                          background: val === n ? `color-mix(in srgb, ${color} 15%, transparent)` : 'var(--bg-2)',
+                          color: val === n ? color : 'var(--text-3)',
+                          outline: val === n ? `1.5px solid ${color}` : 'none',
+                          transition: 'all 0.12s ease' }}>
                         {n}
                       </button>
                     ))}
@@ -232,68 +227,92 @@ export default function TodayPage() {
         )}
       </section>
 
-      <Separator />
+      {/* Divider */}
+      <div style={{ height: 1, background: 'var(--border-2)' }} />
 
-      {/* ─── Food ───────────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <h2 className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-          Food Log
-        </h2>
-        <FoodLogger
-          date={today}
-          entries={foodEntries}
-          onAdd={(e) => setFoodEntries(prev => [...prev, e])}
-          onRemove={(id) => setFoodEntries(prev => prev.filter(e => e.id !== id))}
-        />
-      </section>
-
-      <Separator />
-
-      {/* ─── Finance ─────────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <h2 className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-          Finance
-        </h2>
-        <FinanceWidget
-          date={today}
-          entries={financeEntries}
-          onAdd={(e) => setFinanceEntries(prev => [...prev, e])}
-          onRemove={(id) => setFinanceEntries(prev => prev.filter(e => e.id !== id))}
-        />
-      </section>
-
-      <Separator />
-
-      {/* ─── Journal ─────────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <button onClick={() => setJournalOpen(v => !v)}
-          className="w-full flex items-center justify-between">
-          <h2 className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-            <BookOpen size={11} className="inline mr-1.5 mb-0.5" />
-            Journal
-          </h2>
-          <span className="text-[11px] text-muted-foreground">{log.journal ? `${log.journal.length} chars` : 'optional'}</span>
+      {/* ── Food ───────────────────────────────────────────── */}
+      <section>
+        <button
+          onClick={() => setShowFood(v => !v)}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'default', padding: 0 }}>
+          <p className="section-label">Food Log</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 12 }}>
+            {food.length > 0 && <span style={{ color: 'var(--success)', fontWeight: 600, fontSize: 11 }}>{Math.round(foodTotals.cal)} kcal</span>}
+            {/* AI indicator */}
+            <span style={{ fontSize: 10, color: ollamaOk ? 'var(--success)' : 'var(--text-3)', fontWeight: 500 }}>
+              {ollamaOk ? '● Ollama' : '○ No AI'}
+            </span>
+            {showFood ? <ChevronUp size={12} strokeWidth={2} /> : <ChevronDown size={12} strokeWidth={2} />}
+          </div>
         </button>
-        {journalOpen && (
-          <textarea
-            placeholder="Reflect on your day…"
-            value={log.journal ?? ''}
-            onChange={(e) => update({ journal: e.target.value })}
-            className="w-full min-h-[90px] rounded-2xl bg-card border border-border px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/40 resize-none focus:outline-none focus:border-primary/40 transition-colors slide-up"
-          />
+
+        {showFood && (
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8, animation: 'fade-up 0.2s ease both' }}>
+            {/* Macro bar */}
+            {food.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                {[
+                  { icon: <Flame size={11} />, label: 'kcal', v: Math.round(foodTotals.cal), c: 'var(--warning)' },
+                  { icon: <Beef size={11} />, label: 'protein', v: `${Math.round(foodTotals.pro)}g`, c: 'var(--error)' },
+                  { icon: <Wheat size={11} />, label: 'carbs', v: `${Math.round(foodTotals.carb)}g`, c: 'var(--amber)' },
+                  { icon: <Droplets size={11} />, label: 'fat', v: `${Math.round(foodTotals.fat)}g`, c: 'var(--cyan)' },
+                ].map(({ icon, label, v, c }) => (
+                  <div key={label} className="card" style={{ padding: '8px 10px', textAlign: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, color: c, marginBottom: 2 }}>
+                      {icon}<span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
+                    </div>
+                    <p className="tabular-nums" style={{ fontSize: 13, fontWeight: 700 }}>{v}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Food list */}
+            {food.map(e => (
+              <div key={e.id} className="card" style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{e.food_name ?? e.raw_input}</p>
+                  <p className="footnote">{e.calories} kcal · {e.protein}g P · {e.carbs}g C · {e.fat}g F</p>
+                </div>
+                <button onClick={() => handleRemoveFood(e.id!)} style={{ padding: 5, background: 'none', border: 'none', cursor: 'default', color: 'var(--text-3)', opacity: 0, transition: 'opacity 0.15s' }}
+                  onMouseEnter={el => (el.currentTarget.style.opacity = '1')}
+                  onMouseLeave={el => (el.currentTarget.style.opacity = '0')}>
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+
+            {/* Ollama not running warning */}
+            {ollamaOk === false && (
+              <div style={{ padding: '10px 12px', background: 'var(--warning-2)', borderRadius: 'var(--r)', border: '1px solid var(--warning)', fontSize: 12, color: 'var(--warning)' }}>
+                💡 Install Ollama for free local AI: <code style={{ fontSize: 11 }}>brew install ollama && ollama pull llama3.2:3b</code>
+              </div>
+            )}
+
+            {/* Input */}
+            <div style={{ display: 'flex', gap: 6 }}>
+              <select value={mealType} onChange={e => setMealType(e.target.value as FoodEntry['meal_type'])}
+                style={{ padding: '0 10px', borderRadius: 'var(--r)', border: '1px solid var(--border)', fontSize: 12, flexShrink: 0, height: 36, background: 'var(--surface)', color: 'var(--text-1)' }}>
+                <option value="breakfast">🌅 Breakfast</option>
+                <option value="lunch">☀️ Lunch</option>
+                <option value="dinner">🌙 Dinner</option>
+                <option value="snack">🍎 Snack</option>
+              </select>
+              <input
+                placeholder="What did you eat? e.g. 2 eggs, oats, chicken"
+                value={foodInput} onChange={e => setFoodInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddFood()}
+                disabled={parsing}
+                style={{ flex: 1, height: 36, borderRadius: 'var(--r)', border: '1px solid var(--border)', padding: '0 12px', fontSize: 13, background: 'var(--surface)', color: 'var(--text-1)' }}
+              />
+              <button onClick={handleAddFood} disabled={parsing || !foodInput.trim()}
+                style={{ width: 36, height: 36, borderRadius: 'var(--r)', background: 'var(--accent)', border: 'none', cursor: 'default', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: (parsing || !foodInput.trim()) ? 0.5 : 1 }}>
+                {parsing ? <Loader2 size={14} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Plus size={14} />}
+              </button>
+            </div>
+          </div>
         )}
       </section>
-
-      {/* ─── Score banner ────────────────────────────────────────── */}
-      <div className={`flex items-center justify-center gap-2.5 p-4 rounded-2xl border transition-all duration-500
-        ${score >= 80 ? 'bg-green-500/8 border-green-500/20 text-green-400'
-          : score >= 60 ? 'bg-primary/8 border-primary/20 text-primary'
-          : 'bg-card border-border text-muted-foreground'}`}>
-        <Check size={16} />
-        <span className="text-[13px] font-semibold">
-          {score >= 80 ? 'Crushing it today 🔥' : score >= 60 ? 'Good progress 💪' : `${score}/100 — keep going`}
-        </span>
-      </div>
     </div>
   )
 }

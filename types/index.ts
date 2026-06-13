@@ -44,55 +44,25 @@ export interface FinancialEntry {
   created_at?: string
 }
 
-export interface NutritionTotals {
-  calories: number
-  protein: number
-  carbs: number
-  fat: number
-  fiber: number
-}
-
-export interface DayScore {
-  date: string
-  score: number
-  gym: boolean
-  study: boolean
-  skincare_am: boolean
-  skincare_pm: boolean
-  water: number
-  sleep?: number
-  food_logged: boolean
+export interface Todo {
+  id?: string
+  title: string
+  notes?: string
+  priority: 'low' | 'normal' | 'high'
+  list: 'today' | 'backlog'
+  status: 'pending' | 'completed'
+  due_date?: string
+  completed_at?: string
+  created_at?: string
+  updated_at?: string
 }
 
 export const EXPENSE_CATEGORIES = [
-  'Food & Dining',
-  'Transport',
-  'Shopping',
-  'Entertainment',
-  'Health & Fitness',
-  'Education',
-  'Utilities',
-  'Rent',
-  'Personal Care',
-  'Subscriptions',
-  'Travel',
-  'Other',
+  'Food & Dining', 'Transport', 'Shopping', 'Housing & Bills',
+  'Health & Fitness', 'Entertainment', 'Subscriptions', 'Education',
+  'Travel', 'Gifts', 'Personal Care', 'Other',
 ] as const
 
-export const INCOME_CATEGORIES = [
-  'Salary',
-  'Freelance',
-  'Investment',
-  'Gift',
-  'Other',
-] as const
+export const INCOME_CATEGORIES = ['Salary', 'Freelance', 'Investment', 'Gift', 'Other'] as const
 
-export const NUTRITION_GOALS = {
-  calories: 2200,
-  protein: 150,
-  carbs: 250,
-  fat: 70,
-  fiber: 30,
-  water_glasses: 8,
-  sleep_hours: 8,
-}
+export const NUTRITION_GOALS = { calories: 2200, protein: 150, carbs: 250, fat: 70, fiber: 30, water_glasses: 8, sleep_hours: 8 }

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import Script from 'next/script'
 import './globals.css'
 import Sidebar from '@/components/layout/Sidebar'
 import BottomNav from '@/components/layout/BottomNav'
@@ -6,11 +7,14 @@ import { Toaster } from '@/components/ui/sonner'
 
 export const metadata: Metadata = {
   title: 'Life OS',
-  description: 'Your intelligent personal life tracker',
+  description: 'Your intelligent life tracking system',
 }
 
 export const viewport: Viewport = {
-  themeColor: '#0a0a0f',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#FFFFFF' },
+    { media: '(prefers-color-scheme: dark)',  color: '#000000' },
+  ],
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -18,30 +22,51 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className="antialiased">
-        {/* macOS: sidebar layout on wide screens */}
-        <div className="hidden md:flex h-screen w-screen overflow-hidden bg-background">
+    <html lang="en" suppressHydrationWarning>
+      {/* Inline theme script runs before paint — no flash */}
+      <Script id="theme-init" strategy="beforeInteractive">{`
+        (function() {
+          try {
+            var stored = localStorage.getItem('theme');
+            var dark = stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            if (dark) document.documentElement.classList.add('dark');
+          } catch(e) {}
+        })()
+      `}</Script>
+      <body>
+        {/* macOS desktop: sidebar + content */}
+        <div className="hidden md:flex" style={{ height: '100dvh', width: '100vw', overflow: 'hidden', background: 'var(--bg)' }}>
           <Sidebar />
-          {/* Content area */}
-          <main className="flex-1 h-full overflow-y-auto">
-            {/* Traffic-light top padding */}
-            <div className="h-[52px] w-full shrink-0 select-none" data-tauri-drag-region />
-            <div className="px-8 pb-10 max-w-3xl">
+          <main style={{ flex: 1, height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
+            {/* Title bar padding */}
+            <div style={{ height: 52, flexShrink: 0 }} data-tauri-drag-region />
+            <div style={{ maxWidth: 720, padding: '0 36px 48px' }}>
               {children}
             </div>
           </main>
         </div>
 
-        {/* Mobile: bottom nav layout on small screens */}
-        <div className="md:hidden min-h-dvh pb-20">
-          <main className="max-w-lg mx-auto">
+        {/* Mobile: bottom nav */}
+        <div className="md:hidden" style={{ minHeight: '100dvh', paddingBottom: 76, background: 'var(--bg)' }}>
+          <div style={{ maxWidth: 480, margin: '0 auto', padding: '0 16px' }}>
             {children}
-          </main>
+          </div>
           <BottomNav />
         </div>
 
-        <Toaster position="top-right" theme="dark" richColors />
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: 'var(--elevated)',
+              border: '1px solid var(--border)',
+              color: 'var(--text-1)',
+              borderRadius: 'var(--r-lg)',
+              boxShadow: 'var(--shadow-lg)',
+              fontSize: 13,
+            }
+          }}
+        />
       </body>
     </html>
   )

@@ -2,41 +2,39 @@
 
 import { getScoreColor, getScoreLabel } from '@/lib/scoring'
 
-interface ScoreRingProps {
-  score: number
-  size?: number
-}
-
-export default function ScoreRing({ score, size = 120 }: ScoreRingProps) {
-  const r = 50
-  const circumference = 2 * Math.PI * r
-  const offset = circumference - (score / 100) * circumference
+export default function ScoreRing({ score, size = 100 }: { score: number; size?: number }) {
+  const r = 40
+  const circ = 2 * Math.PI * r
+  const offset = circ - (score / 100) * circ
   const color = getScoreColor(score)
-  const label = getScoreLabel(score)
 
   return (
-    <div className="flex flex-col items-center gap-1">
-      <div style={{ width: size, height: size }} className="relative">
-        <svg width={size} height={size} viewBox="0 0 120 120" className="-rotate-90">
-          <circle cx="60" cy="60" r={r} fill="none" stroke="currentColor"
-            strokeWidth="8" className="text-border" />
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      <div style={{ position: 'relative', width: size, height: size }}>
+        <svg width={size} height={size} viewBox="0 0 100 100" style={{ transform: 'rotate(-90deg)' }}>
+          {/* Track */}
+          <circle cx="50" cy="50" r={r} fill="none" stroke="var(--bg-3)" strokeWidth="7" />
+          {/* Progress */}
           <circle
-            cx="60" cy="60" r={r} fill="none"
-            stroke={color} strokeWidth="8"
+            cx="50" cy="50" r={r} fill="none"
+            stroke={color} strokeWidth="7"
             strokeLinecap="round"
-            strokeDasharray={circumference}
+            strokeDasharray={circ}
             strokeDashoffset={offset}
-            style={{
-              transition: 'stroke-dashoffset 0.8s cubic-bezier(0.34,1.2,0.64,1), stroke 0.3s ease',
-            }}
+            style={{ transition: 'stroke-dashoffset 0.8s cubic-bezier(0.34,1.2,0.64,1), stroke 0.3s ease' }}
           />
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-3xl font-bold tabular-nums" style={{ color }}>{score}</span>
-          <span className="text-[10px] text-muted-foreground font-medium">/ 100</span>
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+          <span className="tabular-nums" style={{ fontSize: size * 0.28, fontWeight: 700, color, lineHeight: 1, letterSpacing: '-0.5px' }}>
+            {score}
+          </span>
+          <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500, marginTop: 1 }}>/ 100</span>
         </div>
       </div>
-      <span className="text-sm font-semibold" style={{ color }}>{label}</span>
+      <span style={{ fontSize: 11, fontWeight: 600, color, letterSpacing: 0.2 }}>{getScoreLabel(score)}</span>
     </div>
   )
 }

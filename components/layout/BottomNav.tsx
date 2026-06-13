@@ -2,39 +2,41 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, CalendarCheck, BarChart3, Wallet } from 'lucide-react'
+import { CalendarCheck, CheckSquare, Wallet, BarChart3, Clock } from 'lucide-react'
 
 const tabs = [
-  { href: '/today', icon: CalendarCheck, label: 'Today' },
-  { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/finance', icon: Wallet, label: 'Finance' },
-  { href: '/history', icon: BarChart3, label: 'History' },
+  { href: '/today',     icon: CalendarCheck, label: 'Today' },
+  { href: '/tasks',     icon: CheckSquare,   label: 'Tasks' },
+  { href: '/finance',   icon: Wallet,        label: 'Finance' },
+  { href: '/dashboard', icon: BarChart3,     label: 'Stats' },
+  { href: '/history',   icon: Clock,         label: 'History' },
 ]
 
 export default function BottomNav() {
   const pathname = usePathname()
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/95 backdrop-blur-lg"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom, 12px)' }}>
-      <div className="mx-auto flex max-w-lg items-center justify-around px-2 pt-2 pb-1">
+    <nav style={{
+      position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
+      borderTop: '1px solid var(--border-2)',
+      background: 'color-mix(in srgb, var(--surface) 90%, transparent)',
+      backdropFilter: 'blur(20px) saturate(1.6)',
+      paddingBottom: 'env(safe-area-inset-bottom, 10px)',
+    }}>
+      <div style={{ maxWidth: 540, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-around', padding: '8px 8px 4px' }}>
         {tabs.map(({ href, icon: Icon, label }) => {
           const active = pathname === href || (href === '/today' && pathname === '/')
           return (
             <Link key={href} href={href}
-              className={`flex flex-col items-center gap-1 rounded-xl px-4 py-2 transition-all duration-200 min-w-[64px]
-                ${active
-                  ? 'text-primary'
-                  : 'text-muted-foreground hover:text-foreground'}`}>
-              <div className={`relative ${active ? 'scale-110' : ''} transition-transform duration-200`}>
-                <Icon size={22} strokeWidth={active ? 2.5 : 1.8} />
-                {active && (
-                  <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
-                )}
-              </div>
-              <span className={`text-[10px] font-medium tracking-wide ${active ? 'text-primary' : ''}`}>
-                {label}
-              </span>
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                padding: '6px 12px', borderRadius: 10, textDecoration: 'none',
+                color: active ? 'var(--accent)' : 'var(--text-3)',
+                transition: 'color 0.15s ease',
+              }}>
+              <Icon size={22} strokeWidth={active ? 2.2 : 1.7} />
+              <span style={{ fontSize: 9, fontWeight: active ? 700 : 500, letterSpacing: '0.02em' }}>{label}</span>
+              {active && <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'var(--accent)', marginTop: -2 }} />}
             </Link>
           )
         })}
