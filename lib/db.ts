@@ -147,3 +147,22 @@ export async function completeTodo(id: string): Promise<void> {
 
 // Re-export food parser
 export { parseFood } from './ollama'
+
+// ─── Workout Logs ─────────────────────────────────────────────
+import type { WorkoutSession } from '@/types'
+
+export async function getWorkoutSession(date: string): Promise<WorkoutSession | null> {
+  return (await offlineGet<WorkoutSession>('workout_logs', date)) ?? null
+}
+
+export async function saveWorkoutSession(session: WorkoutSession): Promise<void> {
+  const record = { ...session, updated_at: new Date().toISOString() }
+  await offlinePut('workout_logs', record as Record<string, unknown>)
+}
+
+export async function getWorkoutHistory(days: number): Promise<WorkoutSession[]> {
+  const all = await offlineGetAll<WorkoutSession>('workout_logs')
+  return all
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, days)
+}

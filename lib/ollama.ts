@@ -3,6 +3,8 @@
 import type { DailyLog, FoodEntry } from '@/types'
 import { getGermanFoodContext } from './germanFoods'
 import { getProfile, buildProfileContext } from './profile'
+import { getGymKnowledgeContext } from './gymKnowledge'
+import type { WorkoutSession } from '@/types'
 
 const OLLAMA_BASE = 'http://127.0.0.1:11434'
 const AI_MEMORY_KEY = 'lifeos_ai_memory'
@@ -352,6 +354,87 @@ Respond with ONLY valid JSON, no markdown:
       suggestion: String(parsed.suggestion ?? ''),
       label: (['peak', 'strong', 'growing', 'needs_work'].includes(parsed.label) ? parsed.label : 'growing') as LifeSummary['label'],
       pattern:    String(parsed.pattern ?? ''),
+    }
+  } catch { return null }
+}
+
+// ─── Gym AI Coach ─────────────────────────────────────────────
+export interface GymCoachResponse {
+  rating: 'excellent' | 'good' | 'fair' | 'below_par'
+  headline: string
+  volume_analysis: string
+  overload_tip: string
+  next_session: string
+  recovery_tip: string
+  form_note?: string
+}
+
+export async function getGymCoaching(
+  session: WorkoutSession,
+  history: WorkoutSession[]
+): Promise<GymCoachResponse | null> {
+  if (!(await isOllamaRunning())) return null
+
+  const profile = getProfile()
+  const profileCtx = buildProfileContext(profile)
+  const gymKnowledge = getGymKnowledgeContext()
+  const memCtx = buildMemoryContext()
+  const model = await getBestModel()
+
+  const sessionSummary = session.exercises.map(ex => {
+    const setsStr = ex.sets.map((s, i) =>
+      `  Set ${i+1}: ${s.reps} reps${s.weight_kg ? ` @ ${s.weight_kg}kg` : ' (bodyweight)'}`
+    ).join('\n')
+    const totalVol = ex.sets.reduce((sum, s) => sum + s.reps * (s.weight_kg ?? 0), 0)
+    return `${ex.name}${ex.muscle_group ? ` [${ex.muscle_group}]` : ''}:\n${setsStr}\n  Volume: ${totalVol > 0 ? `${totalVol}kg` : `${ex.sets.reduce((s, set) => s + set.reps, 0)} total reps`}`
+  }).join('\n\n')
+
+  const historyCtx = history.slice(0, 5).map(h => {
+    const exNames = h.exercises.map(e => {
+      const top = e.sets.reduce((best, s) => (s.weight_kg ?? 0) > (best.weight_kg ?? 0) ? s : best, e.sets[0])
+      return `${e.name}: ${top?.reps}r×${top?.weight_kg ?? 'BW'}kg`
+    }).join(', ')
+    return `${h.date}: [${exNames}]${h.duration_min ? ` ${h.duration_min}min` : ''}`
+  }).join('\n')
+
+  const prompt = `${gymKnowledge}
+
+${profileCtx}
+${memCtx}
+
+YOU ARE: An elite physique coach specialising in body recomposition — lean muscle + <10% BF. This user is currently ~${profile.bodyFatPct ?? 13}% BF targeting ${profile.targetBodyFatPct ?? 10}%.
+
+TODAY'S SESSION (${session.date}):
+Duration: ${session.duration_min ? `${session.duration_min} minutes` : 'not recorded'}
+
+${sessionSummary}
+
+RECENT HISTORY:
+${historyCtx || 'First session logged'}
+
+Respond ONLY with valid JSON:
+{"rating":"excellent|good|fair|below_par","headline":"max 8 words","volume_analysis":"2 sentences on volume adequacy and muscle balance","overload_tip":"SPECIFIC: exact exercise + weight/rep target for next session","next_session":"what muscle groups + why, based on recovery logic","recovery_tip":"specific recovery advice for today/tonight","form_note":"technique note if sets/weights suggest an issue, else empty string"}`
+
+  try {
+    const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({ model, stream: false, format: 'json', messages: [{ role: 'user', content: prompt }] }),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    const content = data.message?.content ?? data.response ?? ''
+    const parsed = typeof content === 'string' ? JSON.parse(content) : content
+    if (parsed.overload_tip) appendAIMemory({ pattern: `Gym: ${String(parsed.overload_tip)}` })
+    return {
+      rating: (['excellent','good','fair','below_par'].includes(parsed.rating) ? parsed.rating : 'good') as GymCoachResponse['rating'],
+      headline:        String(parsed.headline ?? ''),
+      volume_analysis: String(parsed.volume_analysis ?? ''),
+      overload_tip:    String(parsed.overload_tip ?? ''),
+      next_session:    String(parsed.next_session ?? ''),
+      recovery_tip:    String(parsed.recovery_tip ?? ''),
+      form_note:       parsed.form_note ? String(parsed.form_note) : undefined,
     }
   } catch { return null }
 }

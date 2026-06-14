@@ -205,7 +205,11 @@ export default function FoodPage() {
     (a, e) => ({ cal: a.cal + (e.calories ?? 0), protein: a.protein + (e.protein ?? 0), carbs: a.carbs + (e.carbs ?? 0), fat: a.fat + (e.fat ?? 0), fiber: a.fiber + (e.fiber ?? 0) }),
     { cal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
   )
+  const sugar  = Math.round(food.reduce((a, e) => a + ((e as FoodEntry & { sugar?: number }).sugar ?? 0), 0))
+  const sodium = Math.round(food.reduce((a, e) => a + ((e as FoodEntry & { sodium_mg?: number }).sodium_mg ?? 0), 0))
   const t = { cal: Math.round(totals.cal), protein: Math.round(totals.protein), carbs: Math.round(totals.carbs), fat: Math.round(totals.fat), fiber: Math.round(totals.fiber) }
+  const SUGAR_LIMIT  = 25    // g/day
+  const SODIUM_LIMIT = 2000  // mg/day
 
   const calPct  = t.cal / GOALS.calories
   const calColor = t.cal > GOALS.calories * 1.1 ? 'var(--error)' : t.cal >= GOALS.calories * 0.85 ? 'var(--success)' : 'var(--warning)'
@@ -303,6 +307,37 @@ export default function FoodPage() {
                 <MacroRow label="Fiber"         emoji="🌿" value={t.fiber}   goal={GOALS.fiber}   color="#34d399" delay={0.12} />
               </div>
             </div>
+
+            {/* Sugar & Sodium limits */}
+            {(sugar > 0 || sodium > 0) && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {[
+                  { label: 'Sugar', value: sugar, limit: SUGAR_LIMIT, unit: 'g', color: sugar > SUGAR_LIMIT ? 'var(--error)' : sugar > SUGAR_LIMIT * 0.7 ? 'var(--warning)' : 'var(--success)', tip: 'Clean diet limit' },
+                  { label: 'Sodium', value: sodium, limit: SODIUM_LIMIT, unit: 'mg', color: sodium > SODIUM_LIMIT ? 'var(--error)' : sodium > SODIUM_LIMIT * 0.75 ? 'var(--warning)' : 'var(--success)', tip: 'Water retention' },
+                ].map(({ label, value, limit, unit, color, tip }) => {
+                  const pct = Math.min(value / limit, 1.5)
+                  const over = value > limit
+                  return (
+                    <div key={label} className="card" style={{ padding: '11px 13px', position: 'relative', overflow: 'hidden' }}>
+                      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: color }} />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-2)' }}>{label}</span>
+                        {over && <span style={{ fontSize: 8, fontWeight: 800, padding: '1px 5px', borderRadius: 6, background: 'color-mix(in srgb, var(--error) 12%, transparent)', color: 'var(--error)' }}>OVER</span>}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginBottom: 5 }}>
+                        <span className="tabular-nums" style={{ fontSize: 18, fontWeight: 900, color }}>{value < 1000 ? value : `${(value/1000).toFixed(1)}k`}</span>
+                        <span style={{ fontSize: 9, color: 'var(--text-3)' }}>{unit}</span>
+                        <span style={{ fontSize: 9, color: 'var(--text-3)', marginLeft: 2 }}>/ {limit < 1000 ? limit : `${limit/1000}k`}{unit}</span>
+                      </div>
+                      <div style={{ height: 3, background: 'var(--bg-3)', borderRadius: 2, overflow: 'hidden', marginBottom: 4 }}>
+                        <div style={{ height: '100%', width: `${Math.min(pct * 100, 100)}%`, background: color, borderRadius: 2, transition: 'width 1s cubic-bezier(0.34,1.1,0.64,1)' }} />
+                      </div>
+                      <p style={{ fontSize: 9, color: 'var(--text-3)' }}>{tip} · {over ? `${value - limit}${unit} over` : `${limit - value}${unit} left`}</p>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* RIGHT: AI Nutrition Summary */}
