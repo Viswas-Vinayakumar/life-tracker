@@ -53,7 +53,7 @@ export interface Todo {
   priority: 'low' | 'normal' | 'high'
   list: 'today' | 'backlog'
   status: 'pending' | 'completed'
-  due_date?: string
+  due_date?: string       // ISO date string YYYY-MM-DD (optional deadline)
   completed_at?: string
   created_at?: string
   updated_at?: string

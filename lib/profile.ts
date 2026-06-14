@@ -10,6 +10,11 @@ export interface UserProfile {
   dietaryPrefs?: ('vegetarian' | 'vegan' | 'halal' | 'lactose_free' | 'gluten_free')[]
   city?: string
   country?: string
+  // Physique-specific
+  bodyFatPct?: number         // Current estimated BF%
+  targetBodyFatPct?: number   // Target BF%
+  gymTargetDays?: number      // Target gym days per week
+  physiqueGoal?: 'lean_muscle' | 'fat_loss' | 'recomp' | 'bulk'
 }
 
 export const GOAL_LABELS: Record<NonNullable<UserProfile['goal']>, string> = {
@@ -28,12 +33,20 @@ export const ACTIVITY_LABELS: Record<NonNullable<UserProfile['activityLevel']>, 
   very_active: 'Very Active (physical job + training)',
 }
 
+const DEFAULTS: Partial<UserProfile> = {
+  country: 'Germany',
+  bodyFatPct: 13,
+  targetBodyFatPct: 10,
+  gymTargetDays: 4,
+  physiqueGoal: 'lean_muscle',
+}
+
 export function getProfile(): UserProfile {
   if (typeof window === 'undefined') return { name: '' }
   try {
     const raw = localStorage.getItem(PROFILE_KEY)
-    return raw ? JSON.parse(raw) : { name: '', country: 'Germany', city: 'Germany' }
-  } catch { return { name: '' } }
+    return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { name: '', ...DEFAULTS }
+  } catch { return { name: '', ...DEFAULTS } }
 }
 
 export function saveProfile(profile: UserProfile): void {
@@ -63,6 +76,13 @@ export function calcTDEE(profile: UserProfile): number | null {
   return Math.round(bmr * mult)
 }
 
+export const PHYSIQUE_LABELS: Record<NonNullable<UserProfile['physiqueGoal']>, string> = {
+  lean_muscle: 'Lean Muscle + Defined Abs',
+  fat_loss:    'Fat Loss',
+  recomp:      'Body Recomposition',
+  bulk:        'Muscle Bulk',
+}
+
 // Build a profile summary string for Ollama prompts
 export function buildProfileContext(profile: UserProfile): string {
   const parts: string[] = []
@@ -74,11 +94,16 @@ export function buildProfileContext(profile: UserProfile): string {
     const bmi = calcBMI(profile.heightCm, profile.weightKg)
     parts.push(`BMI: ${bmi} (${bmiLabel(bmi)})`)
   }
-  if (profile.goal) parts.push(`Goal: ${GOAL_LABELS[profile.goal]}`)
+  if (profile.bodyFatPct) parts.push(`Current body fat: ~${profile.bodyFatPct}%`)
+  if (profile.targetBodyFatPct) parts.push(`Target body fat: ${profile.targetBodyFatPct}% (lean/defined)`)
+  if (profile.physiqueGoal) parts.push(`Physique goal: ${PHYSIQUE_LABELS[profile.physiqueGoal]}`)
+  if (profile.gymTargetDays) parts.push(`Gym target: ${profile.gymTargetDays}x/week (ideally 6x but realistic 3-4x)`)
+  if (profile.goal) parts.push(`General goal: ${GOAL_LABELS[profile.goal]}`)
   if (profile.activityLevel) parts.push(`Activity level: ${ACTIVITY_LABELS[profile.activityLevel]}`)
   if (profile.dietaryPrefs?.length) parts.push(`Dietary prefs: ${profile.dietaryPrefs.join(', ')}`)
   const tdee = calcTDEE(profile)
   if (tdee) parts.push(`Estimated TDEE: ${tdee} kcal/day`)
-  parts.push('Location: Germany (shops at REWE, ALDI, LIDL, NETTO, Penny)')
+  parts.push('Dietary priority: clean eating — minimize sugar (<25g/day), sodium (<2000mg/day), processed foods. High protein, whole foods.')
+  parts.push('Location: Germany (shops at REWE, ALDI, LIDL, NETTO, Penny, Edeka)')
   return parts.length ? `USER PROFILE:\n${parts.join('\n')}` : ''
 }

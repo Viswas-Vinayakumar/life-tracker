@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { X, User, Save, ChevronDown } from 'lucide-react'
-import { getProfile, saveProfile, calcBMI, calcTDEE, bmiLabel, GOAL_LABELS, ACTIVITY_LABELS, type UserProfile } from '@/lib/profile'
+import { getProfile, saveProfile, calcBMI, calcTDEE, bmiLabel, GOAL_LABELS, ACTIVITY_LABELS, PHYSIQUE_LABELS, type UserProfile } from '@/lib/profile'
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -180,13 +180,39 @@ export default function ProfileModal({ onClose }: { onClose: () => void }) {
             </div>
           </Field>
 
+          {/* Physique goal */}
+          <Field label="Physique Goal">
+            <div style={{ position: 'relative' }}>
+              <select value={profile.physiqueGoal ?? ''} onChange={e => patch('physiqueGoal', (e.target.value || undefined) as UserProfile['physiqueGoal'])} style={selectStyle}>
+                <option value="">Select physique goal…</option>
+                {(Object.entries(PHYSIQUE_LABELS) as [NonNullable<UserProfile['physiqueGoal']>, string][]).map(([k, v]) => (
+                  <option key={k} value={k}>{v}</option>
+                ))}
+              </select>
+              <ChevronDown size={12} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+            </div>
+          </Field>
+
+          {/* Body fat + gym target */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            <Field label="Current BF%">
+              <input type="number" value={profile.bodyFatPct ?? ''} onChange={e => patch('bodyFatPct', e.target.value ? Number(e.target.value) : undefined)} placeholder="e.g. 13" style={inputStyle} min={3} max={50} step={0.5} />
+            </Field>
+            <Field label="Target BF%">
+              <input type="number" value={profile.targetBodyFatPct ?? ''} onChange={e => patch('targetBodyFatPct', e.target.value ? Number(e.target.value) : undefined)} placeholder="e.g. 10" style={inputStyle} min={3} max={40} step={0.5} />
+            </Field>
+            <Field label="Gym / week">
+              <input type="number" value={profile.gymTargetDays ?? ''} onChange={e => patch('gymTargetDays', e.target.value ? Number(e.target.value) : undefined)} placeholder="e.g. 4" style={inputStyle} min={1} max={7} />
+            </Field>
+          </div>
+
           {/* City */}
           <Field label="City (for local food context)">
             <input value={profile.city ?? ''} onChange={e => patch('city', e.target.value)} placeholder="e.g. Berlin, Munich, Hamburg" style={inputStyle} />
           </Field>
 
           <p style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.6 }}>
-            🔒 Your profile is stored locally on this device only. It helps the AI give you personalised nutrition advice, calorie targets, and grocery suggestions for German stores.
+            🔒 Stored locally only. The AI uses your body fat target, gym schedule, and clean diet goal to give you personalised coaching — knows REWE, ALDI, LIDL and German foods.
           </p>
         </div>
 
