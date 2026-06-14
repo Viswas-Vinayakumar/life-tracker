@@ -71,12 +71,17 @@ export async function getOllamaModels(): Promise<string[]> {
 
 async function getBestModel(): Promise<string> {
   const models = await getOllamaModels()
-  const preferred = ['llama3.2:3b', 'llama3.2', 'llama3.1', 'llama3', 'gemma3:4b', 'gemma3', 'mistral', 'phi4', 'phi3']
+  // Prefer small fast models — 3b is enough for JSON extraction
+  const preferred = ['llama3.2:3b', 'gemma3:4b', 'phi4-mini', 'llama3.2', 'gemma3', 'llama3.1', 'llama3', 'mistral', 'phi4', 'phi3']
   for (const p of preferred) {
     if (models.some(m => m.startsWith(p))) return models.find(m => m.startsWith(p))!
   }
   return models[0] ?? 'llama3.2'
 }
+
+// Ollama inference options — low temp for speed + determinism
+const FAST_OPTIONS = { temperature: 0.05, top_k: 5, top_p: 0.9, num_predict: 280, num_ctx: 2048 }
+const ANALYSIS_OPTIONS = { temperature: 0.2, top_k: 20, top_p: 0.9, num_predict: 400, num_ctx: 3072 }
 
 // ─── Food parsing ─────────────────────────────────────────────────
 export interface FoodNutrition {
@@ -110,24 +115,17 @@ export async function parseFoodWithOllama(input: string): Promise<FoodNutrition>
   const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(12000),
     body: JSON.stringify({
-      model, stream: false, format: 'json',
+      model, stream: false, format: 'json', options: FAST_OPTIONS,
       messages: [{
         role: 'user',
         content: `${systemContext}
 
-You are a precision nutrition expert. Parse this food/meal and return ONLY valid JSON (no markdown):
-
+Nutrition expert. Parse food, return ONLY JSON, no markdown.
 Food: "${input}"
-
-{"food_name":"string","calories":0,"protein":0,"carbs":0,"fat":0,"fiber":0,"sugar":0,"sodium_mg":0}
-
-Rules:
-- Be very precise, especially for sugar and sodium
-- If multiple items, sum all values
-- Use realistic German grocery store portions (e.g. Magerquark 200g, Vollkornbrot 50g slice)
-- If a product is from REWE/ALDI/LIDL, use their actual product nutrition data from the reference`,
+{"food_name":"","calories":0,"protein":0,"carbs":0,"fat":0,"fiber":0,"sugar":0,"sodium_mg":0}
+- Sum all items. German portions. Be exact on sugar + sodium.`,
       }],
     }),
   })
@@ -207,39 +205,25 @@ export async function getFoodSummary(entries: FoodEntry[]): Promise<FoodSummary 
     : 2200
   const proteinTarget = profile.weightKg ? Math.round(profile.weightKg * 2.0) : 160
 
-  const prompt = `You are a precision personal nutrition coach and physique trainer. Analyse today's food log.
+  const prompt = `Brutally honest physique coach. No sugarcoating. Goal: 10% BF + lean muscle.
 
 ${profileCtx}
-
 ${memCtx}
 
-TODAY'S FOOD LOG (Germany):
-Items: ${foods}
-Totals: ${totalCal} kcal | ${totalProtein}g protein | ${totalCarbs}g carbs | ${totalFat}g fat | ${totalFiber}g fiber | ${totalSugar}g sugar | ${totalSodium}mg sodium
+TODAY: ${foods}
+${totalCal}kcal | ${totalProtein}g protein | ${totalSugar}g sugar | ${totalSodium}mg sodium | ${totalFiber}g fiber
 
-TARGETS:
-- Calories: ~${tdee} kcal (TDEE)
-- Protein: ${proteinTarget}g/day (2g per kg bodyweight for lean muscle)
-- Sugar: <25g/day (STRICT - clean diet, sub-10% BF goal)
-- Sodium: <2000mg/day (clean eating)
-- Fiber: >30g/day
+HARD LIMITS: protein≥${proteinTarget}g | sugar<25g | sodium<2000mg | cal~${tdee}kcal
 
-ANALYSIS PRIORITIES (in order):
-1. Was protein high enough for muscle retention/growth?
-2. Was sugar under 25g? (critical for fat loss to 10% BF)
-3. Was sodium under 2000mg? (water retention affects definition)
-4. Were calories appropriate for the goal?
-5. Food quality — whole foods vs processed?
-
-Respond ONLY with valid JSON, no markdown:
-{"headline":"punchy 8-word max sentence","rating":"excellent|good|fair|poor","insight":"2 specific sentences about today — mention actual numbers for protein/sugar/sodium if notable","tip":"one very specific actionable tip for tomorrow referencing actual foods or German grocery items","highlight":"the single best food choice today and why","foodHabit":"one short food pattern observation to remember about this user (for future coaching)","concern":"one nutrition concern to remember if any, else empty string"}`
+JSON only, no markdown:
+{"headline":"max 8 words, direct","rating":"excellent|good|fair|poor","insight":"2 sentences — call out failures by number, no softening","tip":"specific fix for tomorrow, name actual German foods","highlight":"best choice today and why","foodHabit":"one pattern to remember","concern":"main concern or empty string"}`
 
   try {
     const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(22000),
-      body: JSON.stringify({ model, stream: false, format: 'json', messages: [{ role: 'user', content: prompt }] }),
+      signal: AbortSignal.timeout(18000),
+      body: JSON.stringify({ model, stream: false, format: 'json', options: ANALYSIS_OPTIONS, messages: [{ role: 'user', content: prompt }] }),
     })
     if (!res.ok) return null
     const data = await res.json()
@@ -361,21 +345,18 @@ GYM SESSIONS:
 TASKS & PRODUCTIVITY:
 - ${taskCtx}
 
-=== COACHING PRIORITIES (in order) ===
-1. Body recomposition to 10% BF — requires: gym 4x/week + protein >150g + sugar <25g + sleep 8h
-2. Study consistency — long-term career & growth
-3. Task execution — pendling tasks are stalled momentum
-4. Recovery — sleep + water + skincare are the support system
+BRUTAL LIFE COACH. Tell the truth. Use real numbers. No softening.
+Priority: 10% BF requires gym 4x/week + protein>150g + sugar<25g + sleep 8h. Everything else is secondary.
 
-Respond with ONLY valid JSON, no markdown:
-{"headline":"punchy 10-word max sentence about overall status","insight":"2-3 sentences with specific numbers across ALL life domains — biggest strength and what's holding them back","suggestion":"one very specific actionable tip that cuts across the data — could be gym, nutrition, sleep, or tasks — concrete and measurable","label":"peak|strong|growing|needs_work","pattern":"one key cross-domain behavioral pattern observed","win":"one thing consistently going well to reinforce","challenge":"the single most important recurring challenge"}`
+JSON only, no markdown:
+{"headline":"max 10 words, direct truth","insight":"2-3 sentences using actual numbers — what's working, what's failing, why they're not at 10% BF yet","suggestion":"the single most impactful change this week — specific, measurable","label":"peak|strong|growing|needs_work","pattern":"one cross-domain behavioral truth about this person","win":"one thing genuinely going well","challenge":"the real obstacle, no sugarcoating"}`
 
   try {
     const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(28000),
-      body: JSON.stringify({ model, stream: false, format: 'json', messages: [{ role: 'user', content: prompt }] }),
+      signal: AbortSignal.timeout(22000),
+      body: JSON.stringify({ model, stream: false, format: 'json', options: ANALYSIS_OPTIONS, messages: [{ role: 'user', content: prompt }] }),
     })
     if (!res.ok) return null
     const data = await res.json()
@@ -441,25 +422,22 @@ export async function getGymCoaching(
 ${profileCtx}
 ${memCtx}
 
-YOU ARE: An elite physique coach specialising in body recomposition — lean muscle + <10% BF. This user is currently ~${profile.bodyFatPct ?? 13}% BF targeting ${profile.targetBodyFatPct ?? 10}%.
+BRUTAL PHYSIQUE COACH. Goal: lean muscle + 10% BF (currently ~${profile.bodyFatPct ?? 13}%). No praise unless earned.
 
-TODAY'S SESSION (${session.date}):
-Duration: ${session.duration_min ? `${session.duration_min} minutes` : 'not recorded'}
-
+SESSION ${session.date}${session.duration_min ? ` · ${session.duration_min}min` : ''}:
 ${sessionSummary}
 
-RECENT HISTORY:
-${historyCtx || 'First session logged'}
+HISTORY: ${historyCtx || 'First session'}
 
-Respond ONLY with valid JSON:
-{"rating":"excellent|good|fair|below_par","headline":"max 8 words","volume_analysis":"2 sentences on volume adequacy and muscle balance","overload_tip":"SPECIFIC: exact exercise + weight/rep target for next session","next_session":"what muscle groups + why, based on recovery logic","recovery_tip":"specific recovery advice for today/tonight","form_note":"technique note if sets/weights suggest an issue, else empty string"}`
+JSON only, no markdown:
+{"rating":"excellent|good|fair|below_par","headline":"max 8 words","volume_analysis":"2 sentences — call out weak points, flag missing muscle groups","overload_tip":"exact exercise + weight + reps for NEXT session","next_session":"muscle groups + recovery reason","recovery_tip":"specific tonight advice","form_note":"form issue if evident, else empty"}`
 
   try {
     const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(30000),
-      body: JSON.stringify({ model, stream: false, format: 'json', messages: [{ role: 'user', content: prompt }] }),
+      signal: AbortSignal.timeout(22000),
+      body: JSON.stringify({ model, stream: false, format: 'json', options: ANALYSIS_OPTIONS, messages: [{ role: 'user', content: prompt }] }),
     })
     if (!res.ok) return null
     const data = await res.json()
