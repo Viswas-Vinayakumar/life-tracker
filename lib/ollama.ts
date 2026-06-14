@@ -271,7 +271,12 @@ export interface LifeSummary {
   pattern: string
 }
 
-export async function getLifeSummary(logs: DailyLog[], food: FoodEntry[]): Promise<LifeSummary | null> {
+export async function getLifeSummary(
+  logs: DailyLog[],
+  food: FoodEntry[],
+  workouts?: WorkoutSession[],
+  todoStats?: { total: number; completed: number; pending: number },
+): Promise<LifeSummary | null> {
   if (!(await isOllamaRunning())) return null
 
   const n = logs.length
@@ -295,41 +300,75 @@ export async function getLifeSummary(logs: DailyLog[], food: FoodEntry[]): Promi
   const trend = last7Score > avgScore ? 'improving' : last7Score < avgScore ? 'declining' : 'steady'
 
   const avgCal    = food.length ? Math.round(food.reduce((s, f) => s + (f.calories ?? 0), 0) / n) : 0
-  const avgSugar  = food.length ? Math.round(food.reduce((s, f) => s + (f.sugar ?? 0), 0) / n) : 0
-  const avgSodium = food.length ? Math.round(food.reduce((s, f) => s + (f.sodium_mg ?? 0), 0) / n) : 0
+  const avgProtein = food.length ? Math.round(food.reduce((s, f) => s + (f.protein ?? 0), 0) / n) : 0
+  const avgSugar  = food.length ? Math.round(food.reduce((s, f) => s + ((f as FoodEntry & { sugar?: number }).sugar ?? 0), 0) / n) : 0
+  const avgSodium = food.length ? Math.round(food.reduce((s, f) => s + ((f as FoodEntry & { sodium_mg?: number }).sodium_mg ?? 0), 0) / n) : 0
+
+  // Gym session data
+  let gymCtx = 'No gym sessions tracked yet'
+  if (workouts && workouts.length > 0) {
+    const totalSessions = workouts.length
+    const avgVolume = Math.round(workouts.reduce((sum, w) =>
+      sum + w.exercises.reduce((s, e) => s + e.sets.reduce((v, set) => v + (set.reps * (set.weight_kg ?? 0)), 0), 0), 0
+    ) / totalSessions)
+    const musclesCovered = [...new Set(workouts.flatMap(w => w.exercises.map(e => e.muscle_group ?? 'General')))]
+    const lastSession = workouts[0]
+    gymCtx = `${totalSessions} sessions tracked | avg volume: ${avgVolume > 0 ? avgVolume + 'kg' : 'bodyweight'} | muscles trained: ${musclesCovered.join(', ')} | last session: ${lastSession.date} (${lastSession.exercises.map(e => e.name).join(', ')})`
+  }
+
+  // Task data
+  let taskCtx = 'No tasks tracked'
+  if (todoStats && todoStats.total > 0) {
+    const completionRate = Math.round(todoStats.completed / todoStats.total * 100)
+    taskCtx = `${todoStats.total} tasks total | ${todoStats.completed} completed (${completionRate}%) | ${todoStats.pending} pending`
+  }
 
   const model = await getBestModel()
   const profile = getProfile()
   const profileCtx = buildProfileContext(profile)
   const memCtx = buildMemoryContext()
 
-  const prompt = `You are a personal life coach and physique trainer AI. Analyse this person's life data.
+  const prompt = `You are a personal life OS coach — you have access to ALL areas of this person's life: fitness, nutrition, habits, study, tasks, and wellbeing. Give a holistic, cross-domain analysis.
 
 ${profileCtx}
 
 ${memCtx}
 
-PERFORMANCE DATA (last ${n} days):
-- Gym attendance: ${gymRate}% days (target: ${(profile.gymTargetDays ?? 4) * 14}% = ${profile.gymTargetDays ?? 4}x/week)
+=== COMPLETE LIFE DATA (last ${n} days) ===
+
+HABITS:
+- Gym attendance: ${gymRate}% days (target: ${(profile.gymTargetDays ?? 4)}x/week)
 - Study: ${studyRate}% days
 - Skincare AM: ${amRate}%, PM: ${pmRate}%
-- Average sleep: ${avgSleep}h (target: 8h — critical for body fat reduction & muscle recovery)
-- Average water: ${avgWater} glasses/day (target: 8 glasses)
-- Average performance score: ${avgScore}/100
-- Recent trend (7d vs overall): ${trend}
-- Average mood: ${avgMood}/10
-- Avg daily calories: ${avgCal > 0 ? avgCal + ' kcal' : 'not tracked'}
-- Avg daily sugar: ${avgSugar > 0 ? avgSugar + 'g (target <25g for 10% BF)' : 'not tracked'}
-- Avg daily sodium: ${avgSodium > 0 ? avgSodium + 'mg (target <2000mg)' : 'not tracked'}
+- Avg performance score: ${avgScore}/100 | trend: ${trend}
 
-KEY COACHING PRIORITIES:
-1. Gym consistency (biggest lever for 10% BF + lean muscle)
-2. Sleep quality (affects cortisol → fat storage, muscle recovery)
-3. Nutrition adherence (clean diet, sugar/sodium control)
-4. Progressive training + recovery balance
+SLEEP & RECOVERY:
+- Average sleep: ${avgSleep}h (target: 8h — critical for cortisol, fat loss, muscle repair)
+- Average water: ${avgWater} glasses/day
+
+MOOD & ENERGY:
+- Average mood: ${avgMood}/10
+
+NUTRITION:
+- Avg calories: ${avgCal > 0 ? avgCal + ' kcal/day' : 'not tracked'}
+- Avg protein: ${avgProtein > 0 ? avgProtein + 'g/day (target 150g for muscle retention)' : 'not tracked'}
+- Avg sugar: ${avgSugar > 0 ? avgSugar + 'g/day (limit <25g for 10% BF)' : 'not tracked'}
+- Avg sodium: ${avgSodium > 0 ? avgSodium + 'mg/day (limit <2000mg)' : 'not tracked'}
+
+GYM SESSIONS:
+- ${gymCtx}
+
+TASKS & PRODUCTIVITY:
+- ${taskCtx}
+
+=== COACHING PRIORITIES (in order) ===
+1. Body recomposition to 10% BF — requires: gym 4x/week + protein >150g + sugar <25g + sleep 8h
+2. Study consistency — long-term career & growth
+3. Task execution — pendling tasks are stalled momentum
+4. Recovery — sleep + water + skincare are the support system
 
 Respond with ONLY valid JSON, no markdown:
-{"headline":"punchy 10-word max sentence about overall status","insight":"2-3 sentences with specific numbers — what's their biggest strength and what's holding them back from 10% BF","suggestion":"one very specific actionable tip for the next 7 days — concrete, measurable","label":"peak|strong|growing|needs_work","pattern":"one key behavioral pattern observed about this person","win":"one thing consistently going well to reinforce","challenge":"one recurring challenge to note for future coaching"}`
+{"headline":"punchy 10-word max sentence about overall status","insight":"2-3 sentences with specific numbers across ALL life domains — biggest strength and what's holding them back","suggestion":"one very specific actionable tip that cuts across the data — could be gym, nutrition, sleep, or tasks — concrete and measurable","label":"peak|strong|growing|needs_work","pattern":"one key cross-domain behavioral pattern observed","win":"one thing consistently going well to reinforce","challenge":"the single most important recurring challenge"}`
 
   try {
     const res = await fetch(`${OLLAMA_BASE}/api/chat`, {

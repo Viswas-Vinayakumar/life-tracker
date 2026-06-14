@@ -7,9 +7,9 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts'
 import { Flame, TrendingUp, Target, Trophy, Dumbbell, BookOpen, Droplets, Moon, Apple, Zap, RefreshCw, Brain } from 'lucide-react'
-import type { DailyLog, FoodEntry } from '@/types'
+import type { DailyLog, FoodEntry, WorkoutSession, Todo } from '@/types'
 import { getScoreColor, getScoreLabel } from '@/lib/scoring'
-import { getLogs, getFoodEntriesRange } from '@/lib/db'
+import { getLogs, getFoodEntriesRange, getWorkoutHistory, getTodos } from '@/lib/db'
 import { isOllamaRunning, getLifeSummary, type LifeSummary } from '@/lib/ollama'
 import { format as formatDate } from 'date-fns'
 
@@ -86,22 +86,27 @@ export default function DashboardPage() {
   useEffect(() => {
     const end = TODAY
     const start = formatDate(subDays(new Date(), 29), 'yyyy-MM-dd')
-    Promise.all([getLogs(30), getFoodEntriesRange(start, end), isOllamaRunning()])
-      .then(([l, f30, ok]) => {
+    Promise.all([getLogs(30), getFoodEntriesRange(start, end), isOllamaRunning(), getWorkoutHistory(30), getTodos()])
+      .then(([l, f30, ok, workouts, todos]) => {
         setLogs(l); setFood30(f30); setOllamaOk(ok); setLoading(false)
-        if (ok && l.length > 0) loadAiSummary(l, f30)
+        if (ok && l.length > 0) loadAiSummary(l, f30, false, workouts as WorkoutSession[], todos as Todo[])
       })
       .catch(() => setLoading(false))
   }, [])
 
-  const loadAiSummary = async (l: DailyLog[], f: FoodEntry[], force = false) => {
+  const loadAiSummary = async (l: DailyLog[], f: FoodEntry[], force = false, workouts?: WorkoutSession[], todos?: Todo[]) => {
     const cacheKey = `lifeos_life_summary_${TODAY}`
     if (!force) {
       const cached = localStorage.getItem(cacheKey)
       if (cached) { try { setAiSummary(JSON.parse(cached)); return } catch { /* ignore */ } }
     }
     setAiLoading(true)
-    const result = await getLifeSummary(l, f)
+    const todoStats = todos ? {
+      total: todos.length,
+      completed: todos.filter((t: Todo) => t.status === 'completed').length,
+      pending: todos.filter((t: Todo) => t.status === 'pending').length,
+    } : undefined
+    const result = await getLifeSummary(l, f, workouts, todoStats)
     if (result) { setAiSummary(result); localStorage.setItem(cacheKey, JSON.stringify(result)) }
     setAiLoading(false)
   }
@@ -220,7 +225,7 @@ export default function DashboardPage() {
       <section>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <p className="section-label">AI Life Coach</p>
-          <button onClick={() => loadAiSummary(logs, food30, true)} disabled={aiLoading || !ollamaOk}
+          <button onClick={async () => { const [w, t] = await Promise.all([getWorkoutHistory(30), getTodos()]); loadAiSummary(logs, food30, true, w as WorkoutSession[], t as Todo[]) }} disabled={aiLoading || !ollamaOk}
             style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 8, border: '1px solid var(--border-2)', background: 'transparent', cursor: 'default', fontSize: 10, color: 'var(--text-3)', opacity: !ollamaOk ? 0.35 : 1 }}>
             <RefreshCw size={9} style={{ animation: aiLoading ? 'spin 1s linear infinite' : 'none' }} />
             {aiLoading ? 'Analysing…' : 'Refresh'}

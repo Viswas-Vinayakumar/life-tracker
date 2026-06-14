@@ -52,26 +52,6 @@ export default function GymPage() {
   const [gymDone,   setGymDone]   = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [activeExIdx, setActiveExIdx] = useState<number | null>(null)
-  const [quote] = useState(() => {
-    const QUOTES = [
-      "I would rather burn the boat and learn to swim than wonder what's on the other side of the shore.",
-      "Breathe, relax — you are in Germany. You made it.",
-      "Good morning with an espresso. Now lift something heavy.",
-      "Discipline is choosing between what you want now and what you want most.",
-      "The body achieves what the mind believes. Your mind is already there.",
-      "Progress, not perfection. Every rep counts.",
-      "You don't find motivation — you build it, one session at a time.",
-      "Berlin is cold. Your gains don't have to be.",
-      "Consistency over intensity. Show up, always.",
-      "The pain you feel today is the strength you feel tomorrow.",
-      "You came this far not to only come this far.",
-      "Strong body, sharp mind — that is the whole game.",
-      "Stillwater runs deep. So does the work you do in silence.",
-      "Champions train when no one is watching. Today is that day.",
-      "One espresso, one workout, one day at a time.",
-    ]
-    return QUOTES[Math.floor(Math.random() * QUOTES.length)]
-  })
 
   // ── Load existing session + history + gym_done status ──
   useEffect(() => {
@@ -434,27 +414,18 @@ export default function GymPage() {
             </div>
           )}
 
-          {/* Empty state — motivational quote */}
+          {/* Empty state */}
           {!coaching && !coach && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: '8px 0' }}>
-              {/* Quote */}
-              <div style={{ padding: '18px 20px', borderRadius: 12, background: 'color-mix(in srgb, var(--violet) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--violet) 14%, transparent)', position: 'relative' }}>
-                <div style={{ position: 'absolute', top: 12, left: 14, fontSize: 28, color: 'var(--violet)', opacity: 0.18, lineHeight: 1, fontFamily: 'Georgia, serif' }}>"</div>
-                <p style={{ fontSize: 13, color: 'var(--text-1)', lineHeight: 1.7, fontStyle: 'italic', paddingLeft: 10, paddingRight: 4 }}>
-                  {quote}
-                </p>
-              </div>
-              {/* Prompt */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', textAlign: 'center', justifyContent: 'center' }}>
-                <Dumbbell size={13} style={{ opacity: 0.3 }} />
-                <p style={{ fontSize: 11 }}>
-                  {session.exercises.length === 0
-                    ? 'Add exercises — AI coaching unlocks after you save'
-                    : ollamaOk
-                      ? 'Save your session to get coaching'
-                      : 'Install Ollama · brew install ollama'}
-                </p>
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '28px 0', color: 'var(--text-3)', textAlign: 'center' }}>
+              <Dumbbell size={24} style={{ opacity: 0.2 }} />
+              <p style={{ fontSize: 12, lineHeight: 1.5 }}>
+                {session.exercises.length === 0
+                  ? 'Add exercises to get AI coaching'
+                  : ollamaOk
+                    ? 'Save your session to get coaching'
+                    : 'Install Ollama for AI coaching'}
+              </p>
+              {!ollamaOk && <code style={{ fontSize: 10 }}>brew install ollama</code>}
             </div>
           )}
         </div>

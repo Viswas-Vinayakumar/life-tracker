@@ -20,6 +20,34 @@ const GREETING = H < 5 ? 'Good Night' : H < 12 ? 'Good Morning' : H < 17 ? 'Good
 
 const DEFAULT: DailyLog = { date: TODAY, gym_done: false, gym_notes: '', study_done: false, study_notes: '', skincare_am: false, skincare_pm: false, water_glasses: 0 }
 
+const DAILY_QUOTES = [
+  { text: "I would rather burn the boat and learn to swim than wonder what's on the other side of the shore.", author: "— Your mindset" },
+  { text: "Breathe, relax — you are in Germany. You made it this far.", author: "— Berlin life" },
+  { text: "Good morning with an espresso. The rest follows.", author: "— Morning ritual" },
+  { text: "Discipline is choosing between what you want now and what you want most.", author: "— Ancient wisdom" },
+  { text: "Strong body, sharp mind — that is the whole game.", author: "— The formula" },
+  { text: "Progress, not perfection. Every rep, every day counts.", author: "— Training truth" },
+  { text: "The best investment you can make is in yourself.", author: "— W. Buffett" },
+  { text: "Berlin is cold. Your ambition doesn't have to be.", author: "— Berlin life" },
+  { text: "Consistency over intensity. Show up, always.", author: "— Long game" },
+  { text: "The pain you feel today is the strength you feel tomorrow.", author: "— Iron law" },
+  { text: "You came this far not to only come this far.", author: "— Keep going" },
+  { text: "Stillwater runs deep. So does the work you do in silence.", author: "— Silent grind" },
+  { text: "Champions train when no one is watching. Today is that day.", author: "— Championship mindset" },
+  { text: "One espresso, one workout, one step. Compound everything.", author: "— Daily formula" },
+  { text: "What you do today is what you become tomorrow.", author: "— Identity shift" },
+  { text: "The goal is not to be better than others. It's to be better than you were yesterday.", author: "— Self-competition" },
+  { text: "Rest when you're done. Not when you're tired.", author: "— Endurance" },
+  { text: "Your future self is watching your choices today. Make them proud.", author: "— Future you" },
+  { text: "Eat clean, train mean, think sharp. That's the blueprint.", author: "— The system" },
+  { text: "Europe is a privilege. Use the energy of new beginnings.", author: "— New chapter" },
+]
+
+function getDailyQuote() {
+  const day = Math.floor(Date.now() / 86400000)
+  return DAILY_QUOTES[day % DAILY_QUOTES.length]
+}
+
 export default function TodayPage() {
   const [log, setLog] = useState<DailyLog>(DEFAULT)
   const [food, setFood] = useState<FoodEntry[]>([])
@@ -32,6 +60,7 @@ export default function TodayPage() {
   const [showFood, setShowFood] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [confirmFood, setConfirmFood] = useState<{ open: boolean; id?: string }>({ open: false })
+  const dailyQuote = getDailyQuote()
   const debounce = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   const score = calculateScore(log, food)
@@ -99,8 +128,11 @@ export default function TodayPage() {
 
   const yesterday = format(subDays(new Date(), 1), 'EEEE, MMM d')
 
+  const habitsCompleted = [log.gym_done, log.study_done, log.skincare_am, log.skincare_pm].filter(Boolean).length
+
   return (
-    <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 680 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 24, maxWidth: 1060, alignItems: 'start' }}>
+    <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* ── Header ─────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
@@ -341,6 +373,59 @@ export default function TodayPage() {
         onConfirm={handleRemoveFood}
         onCancel={() => setConfirmFood({ open: false })}
       />
+    </div>
+
+    {/* ── Right panel: motivational quote + daily summary ── */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, position: 'sticky', top: 24 }}>
+      {/* Quote card */}
+      <div className="card" style={{ padding: '20px 20px', position: 'relative', overflow: 'hidden', animation: 'fade-up 0.3s 0.1s ease both' }}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, var(--violet), var(--cyan))', opacity: 0.7 }} />
+        <p style={{ fontSize: 9, fontWeight: 800, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>Today's Thought</p>
+        <div style={{ position: 'relative' }}>
+          <span style={{ position: 'absolute', top: -6, left: -4, fontSize: 36, color: 'var(--violet)', opacity: 0.15, lineHeight: 1, fontFamily: 'Georgia, serif', userSelect: 'none' }}>"</span>
+          <p style={{ fontSize: 13, color: 'var(--text-1)', lineHeight: 1.75, fontStyle: 'italic', paddingLeft: 8 }}>
+            {dailyQuote.text}
+          </p>
+        </div>
+        <p style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 12, paddingLeft: 8 }}>{dailyQuote.author}</p>
+      </div>
+
+      {/* Habit progress card */}
+      <div className="card" style={{ padding: '14px 16px', animation: 'fade-up 0.3s 0.15s ease both' }}>
+        <p style={{ fontSize: 9, fontWeight: 800, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>Habits Today</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {[
+            { label: 'Gym',         done: log.gym_done,     color: 'var(--violet)' },
+            { label: 'Study',       done: log.study_done,   color: 'var(--cyan)' },
+            { label: 'Skincare AM', done: log.skincare_am,  color: 'var(--amber)' },
+            { label: 'Skincare PM', done: log.skincare_pm,  color: 'var(--indigo)' },
+          ].map(({ label, done, color }) => (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: done ? color : 'var(--bg-3)', flexShrink: 0, transition: 'background 0.2s', boxShadow: done ? `0 0 6px ${color}80` : 'none' }} />
+              <span style={{ fontSize: 12, color: done ? 'var(--text-1)' : 'var(--text-3)', fontWeight: done ? 600 : 400, flex: 1 }}>{label}</span>
+              {done && <span style={{ fontSize: 10, color }}>✓</span>}
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop: 12, height: 3, background: 'var(--bg-3)', borderRadius: 2, overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${habitsCompleted / 4 * 100}%`, background: habitsCompleted === 4 ? 'var(--success)' : 'var(--accent)', borderRadius: 2, transition: 'width 0.6s cubic-bezier(0.34,1.2,0.64,1)' }} />
+        </div>
+        <p style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 6 }}>{habitsCompleted}/4 complete</p>
+      </div>
+
+      {/* Score nudge */}
+      {score > 0 && (
+        <div className="card" style={{ padding: '12px 16px', animation: 'fade-up 0.3s 0.2s ease both' }}>
+          <p style={{ fontSize: 9, fontWeight: 800, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Score</p>
+          <p className="tabular-nums" style={{ fontSize: 28, fontWeight: 900, color: score >= 70 ? 'var(--success)' : score >= 40 ? 'var(--warning)' : 'var(--error)' }}>
+            {score}<span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-3)' }}>/100</span>
+          </p>
+          <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+            {score >= 80 ? 'Peak day. Keep it up.' : score >= 60 ? 'Good momentum.' : score >= 40 ? 'Half-way there.' : 'Every point counts.'}
+          </p>
+        </div>
+      )}
+    </div>
     </div>
   )
 }
