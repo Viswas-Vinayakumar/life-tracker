@@ -2,7 +2,7 @@
 import { offlinePut, offlineGetAll } from './offline'
 
 export type ActivityType = 'habit' | 'food' | 'todo' | 'finance' | 'vitals' | 'journal' | 'history_edit'
-export type ActivityAction = 'toggled_on' | 'toggled_off' | 'added' | 'completed' | 'deleted' | 'updated' | 'edited'
+export type ActivityAction = 'toggled_on' | 'toggled_off' | 'added' | 'completed' | 'deleted' | 'updated' | 'edited' | 'moved'
 
 export interface ActivityEntry {
   id: string

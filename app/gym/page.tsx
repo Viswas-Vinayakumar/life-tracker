@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
 import {
-  Plus, Trash2, Clock, Dumbbell, Zap, RefreshCw, ChevronDown, ChevronUp, Check, Timer
+  Plus, Trash2, Clock, Dumbbell, Zap, RefreshCw, ChevronDown, ChevronUp, Check
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getWorkoutSession, saveWorkoutSession, getWorkoutHistory, upsertLog, getLog } from '@/lib/db'
@@ -52,9 +52,26 @@ export default function GymPage() {
   const [gymDone,   setGymDone]   = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [activeExIdx, setActiveExIdx] = useState<number | null>(null)
-  const [timerRunning, setTimerRunning] = useState(false)
-  const [timerSecs,    setTimerSecs]    = useState(0)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [quote] = useState(() => {
+    const QUOTES = [
+      "I would rather burn the boat and learn to swim than wonder what's on the other side of the shore.",
+      "Breathe, relax — you are in Germany. You made it.",
+      "Good morning with an espresso. Now lift something heavy.",
+      "Discipline is choosing between what you want now and what you want most.",
+      "The body achieves what the mind believes. Your mind is already there.",
+      "Progress, not perfection. Every rep counts.",
+      "You don't find motivation — you build it, one session at a time.",
+      "Berlin is cold. Your gains don't have to be.",
+      "Consistency over intensity. Show up, always.",
+      "The pain you feel today is the strength you feel tomorrow.",
+      "You came this far not to only come this far.",
+      "Strong body, sharp mind — that is the whole game.",
+      "Stillwater runs deep. So does the work you do in silence.",
+      "Champions train when no one is watching. Today is that day.",
+      "One espresso, one workout, one day at a time.",
+    ]
+    return QUOTES[Math.floor(Math.random() * QUOTES.length)]
+  })
 
   // ── Load existing session + history + gym_done status ──
   useEffect(() => {
@@ -77,28 +94,6 @@ export default function GymPage() {
       return () => clearTimeout(t)
     }
   }, [session])
-
-  // ── Timer ──
-  const startTimer = () => {
-    setTimerRunning(true)
-    timerRef.current = setInterval(() => setTimerSecs(s => s + 1), 1000)
-  }
-  const stopTimer = () => {
-    setTimerRunning(false)
-    if (timerRef.current) clearInterval(timerRef.current)
-    const mins = Math.round(timerSecs / 60)
-    if (mins > 0) setSession(s => ({ ...s, duration_min: mins }))
-  }
-  useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current) }, [])
-
-  const timerLabel = () => {
-    const h = Math.floor(timerSecs / 3600)
-    const m = Math.floor((timerSecs % 3600) / 60)
-    const s = timerSecs % 60
-    return h > 0
-      ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
-      : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
-  }
 
   // ── Exercise mutations ──
   const addExercise = () => {
@@ -221,19 +216,7 @@ export default function GymPage() {
           {/* Session header card */}
           <div className="card" style={{ padding: '14px 16px', animation: 'fade-up 0.2s 0.04s ease both' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-              {/* Timer */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Timer size={14} color="var(--violet)" />
-                <span className="tabular-nums" style={{ fontSize: 20, fontWeight: 800, color: timerRunning ? 'var(--violet)' : 'var(--text-1)', fontVariantNumeric: 'tabular-nums', transition: 'color 0.2s' }}>
-                  {timerLabel()}
-                </span>
-                <button onClick={timerRunning ? stopTimer : startTimer}
-                  style={{ height: 28, padding: '0 10px', borderRadius: 8, border: 'none', cursor: 'default', fontSize: 11, fontWeight: 700, background: timerRunning ? 'color-mix(in srgb, var(--error) 12%, transparent)' : 'color-mix(in srgb, var(--violet) 12%, transparent)', color: timerRunning ? 'var(--error)' : 'var(--violet)', transition: 'all 0.15s' }}>
-                  {timerRunning ? 'Stop' : 'Start'}
-                </button>
-              </div>
-
-              {/* Manual duration */}
+              {/* Duration */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Clock size={13} color="var(--text-3)" />
                 <input
@@ -451,20 +434,27 @@ export default function GymPage() {
             </div>
           )}
 
-          {/* Empty state */}
+          {/* Empty state — motivational quote */}
           {!coaching && !coach && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '24px 0', color: 'var(--text-3)', textAlign: 'center' }}>
-              <Dumbbell size={24} style={{ opacity: 0.25 }} />
-              <p style={{ fontSize: 12, lineHeight: 1.5 }}>
-                {session.exercises.length === 0
-                  ? 'Add exercises to get AI coaching'
-                  : ollamaOk
-                    ? 'Save your session to get coaching'
-                    : 'Install Ollama for AI coaching'}
-              </p>
-              {!ollamaOk && (
-                <code style={{ fontSize: 10, color: 'var(--text-3)' }}>brew install ollama</code>
-              )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: '8px 0' }}>
+              {/* Quote */}
+              <div style={{ padding: '18px 20px', borderRadius: 12, background: 'color-mix(in srgb, var(--violet) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--violet) 14%, transparent)', position: 'relative' }}>
+                <div style={{ position: 'absolute', top: 12, left: 14, fontSize: 28, color: 'var(--violet)', opacity: 0.18, lineHeight: 1, fontFamily: 'Georgia, serif' }}>"</div>
+                <p style={{ fontSize: 13, color: 'var(--text-1)', lineHeight: 1.7, fontStyle: 'italic', paddingLeft: 10, paddingRight: 4 }}>
+                  {quote}
+                </p>
+              </div>
+              {/* Prompt */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', textAlign: 'center', justifyContent: 'center' }}>
+                <Dumbbell size={13} style={{ opacity: 0.3 }} />
+                <p style={{ fontSize: 11 }}>
+                  {session.exercises.length === 0
+                    ? 'Add exercises — AI coaching unlocks after you save'
+                    : ollamaOk
+                      ? 'Save your session to get coaching'
+                      : 'Install Ollama · brew install ollama'}
+                </p>
+              </div>
             </div>
           )}
         </div>

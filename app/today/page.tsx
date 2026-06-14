@@ -9,6 +9,7 @@ import HabitToggle from '@/components/habits/HabitToggle'
 import ScoreRing from '@/components/habits/ScoreRing'
 import { calculateScore } from '@/lib/scoring'
 import { getLog, upsertLog, getFoodEntries, addFoodEntry, deleteFoodEntry, parseFood } from '@/lib/db'
+import { logActivity } from '@/lib/activityLog'
 import { isOllamaRunning } from '@/lib/ollama'
 import type { DailyLog, FoodEntry } from '@/types'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
@@ -132,18 +133,20 @@ export default function TodayPage() {
         <HabitToggle icon="🏋️" label="Gym" done={log.gym_done} notes={log.gym_notes}
           color="var(--violet)" colorBg="var(--violet-2)" hasNotes points={20}
           notesPlaceholder="What did you train? e.g. Push day, 5k run"
-          onToggle={d => update({ gym_done: d })} onNotes={n => update({ gym_notes: n })} />
+          onToggle={d => { update({ gym_done: d }); logActivity('habit', d ? 'toggled_on' : 'toggled_off', d ? 'Completed Gym' : 'Skipped Gym') }}
+          onNotes={n => update({ gym_notes: n })} />
         <HabitToggle icon="📚" label="Study" done={log.study_done} notes={log.study_notes}
           color="var(--cyan)" colorBg="var(--cyan-2)" hasNotes points={20}
           notesPlaceholder="What did you study? e.g. DSA, chapter 5"
-          onToggle={d => update({ study_done: d })} onNotes={n => update({ study_notes: n })} />
+          onToggle={d => { update({ study_done: d }); logActivity('habit', d ? 'toggled_on' : 'toggled_off', d ? 'Completed Study' : 'Skipped Study') }}
+          onNotes={n => update({ study_notes: n })} />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <HabitToggle icon="☀️" label="Skincare AM" done={log.skincare_am}
             color="var(--amber)" colorBg="var(--warning-2)" points={10}
-            onToggle={d => update({ skincare_am: d })} />
+            onToggle={d => { update({ skincare_am: d }); logActivity('habit', d ? 'toggled_on' : 'toggled_off', d ? 'Completed Skincare AM' : 'Skipped Skincare AM') }} />
           <HabitToggle icon="🌙" label="Skincare PM" done={log.skincare_pm}
             color="var(--indigo)" colorBg="var(--indigo-2)" points={10}
-            onToggle={d => update({ skincare_pm: d })} />
+            onToggle={d => { update({ skincare_pm: d }); logActivity('habit', d ? 'toggled_on' : 'toggled_off', d ? 'Completed Skincare PM' : 'Skipped Skincare PM') }} />
         </div>
       </section>
 

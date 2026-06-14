@@ -216,6 +216,55 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* ── AI Life Summary ── */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <p className="section-label">AI Life Coach</p>
+          <button onClick={() => loadAiSummary(logs, food30, true)} disabled={aiLoading || !ollamaOk}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 8, border: '1px solid var(--border-2)', background: 'transparent', cursor: 'default', fontSize: 10, color: 'var(--text-3)', opacity: !ollamaOk ? 0.35 : 1 }}>
+            <RefreshCw size={9} style={{ animation: aiLoading ? 'spin 1s linear infinite' : 'none' }} />
+            {aiLoading ? 'Analysing…' : 'Refresh'}
+          </button>
+        </div>
+        <div className="card" style={{ padding: '16px 18px', position: 'relative', overflow: 'hidden', borderColor: aiSummary ? `color-mix(in srgb, ${LABEL_COLOR[aiSummary.label]} 25%, transparent)` : 'var(--border-2)' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, var(--violet), var(--cyan), var(--success))', opacity: 0.8 }} />
+          {aiLoading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-3)', padding: '8px 0' }}>
+              <div style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid var(--violet)', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
+              <span style={{ fontSize: 12 }}>Analysing your 30-day patterns…</span>
+            </div>
+          )}
+          {!aiLoading && aiSummary && (
+            <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', animation: 'fade-up 0.2s ease both' }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: `color-mix(in srgb, ${LABEL_COLOR[aiSummary.label]} 12%, transparent)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Brain size={16} color={LABEL_COLOR[aiSummary.label]} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 10, background: `color-mix(in srgb, ${LABEL_COLOR[aiSummary.label]} 12%, transparent)`, color: LABEL_COLOR[aiSummary.label], textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                    {LABEL_TEXT[aiSummary.label]}
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)' }}>{aiSummary.headline}</span>
+                </div>
+                <p style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.7, marginBottom: 6 }}>{aiSummary.insight}</p>
+                <p style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.6, marginBottom: 10 }}>{aiSummary.pattern}</p>
+                {aiSummary.suggestion && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    <span style={{ fontSize: 11, padding: '4px 10px', borderRadius: 20, background: 'var(--bg-2)', border: '1px solid var(--border-2)', color: 'var(--text-2)' }}>→ {aiSummary.suggestion}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {!aiLoading && !aiSummary && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', padding: '4px 0' }}>
+              <Brain size={14} style={{ opacity: 0.3 }} />
+              <p style={{ fontSize: 12 }}>{ollamaOk ? 'Generating your life analysis…' : 'Install Ollama for AI coaching · brew install ollama'}</p>
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* ── Overall Health Score ── */}
       <div className="card" style={{ padding: '22px 26px', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, var(--violet), var(--cyan), var(--success), var(--amber))', opacity: 0.9 }} />
@@ -298,55 +347,6 @@ export default function DashboardPage() {
             No data yet — log your first day!
           </div>
         )}
-      </section>
-
-      {/* ── AI Life Summary ── */}
-      <section>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <p className="section-label">AI Life Coach</p>
-          <button onClick={() => loadAiSummary(logs, food30, true)} disabled={aiLoading || !ollamaOk}
-            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 8, border: '1px solid var(--border-2)', background: 'transparent', cursor: 'default', fontSize: 10, color: 'var(--text-3)', opacity: !ollamaOk ? 0.35 : 1 }}>
-            <RefreshCw size={9} style={{ animation: aiLoading ? 'spin 1s linear infinite' : 'none' }} />
-            {aiLoading ? 'Analysing…' : 'Refresh'}
-          </button>
-        </div>
-        <div className="card" style={{ padding: '16px 18px', position: 'relative', overflow: 'hidden', borderColor: aiSummary ? `color-mix(in srgb, ${LABEL_COLOR[aiSummary.label]} 25%, transparent)` : 'var(--border-2)' }}>
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, var(--violet), var(--cyan), var(--success))', opacity: 0.8 }} />
-          {aiLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-3)', padding: '8px 0' }}>
-              <div style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid var(--violet)', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
-              <span style={{ fontSize: 12 }}>Analysing your 30-day patterns…</span>
-            </div>
-          )}
-          {!aiLoading && aiSummary && (
-            <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', animation: 'fade-up 0.2s ease both' }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: `color-mix(in srgb, ${LABEL_COLOR[aiSummary.label]} 12%, transparent)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Brain size={16} color={LABEL_COLOR[aiSummary.label]} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 10, background: `color-mix(in srgb, ${LABEL_COLOR[aiSummary.label]} 12%, transparent)`, color: LABEL_COLOR[aiSummary.label], textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                    {LABEL_TEXT[aiSummary.label]}
-                  </span>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)' }}>{aiSummary.headline}</span>
-                </div>
-                <p style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.7, marginBottom: 6 }}>{aiSummary.insight}</p>
-                <p style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.6, marginBottom: 10 }}>{aiSummary.pattern}</p>
-                {aiSummary.suggestion && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    <span style={{ fontSize: 11, padding: '4px 10px', borderRadius: 20, background: 'var(--bg-2)', border: '1px solid var(--border-2)', color: 'var(--text-2)' }}>→ {aiSummary.suggestion}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          {!aiLoading && !aiSummary && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', padding: '4px 0' }}>
-              <Brain size={14} style={{ opacity: 0.3 }} />
-              <p style={{ fontSize: 12 }}>{ollamaOk ? 'Generating your life analysis…' : 'Install Ollama for AI coaching · brew install ollama'}</p>
-            </div>
-          )}
-        </div>
       </section>
 
       {/* ── Compact Nutrition Overview ── */}

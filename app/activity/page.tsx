@@ -2,8 +2,19 @@
 
 import { useState, useEffect } from 'react'
 import { format, parseISO, isToday, isYesterday } from 'date-fns'
-import { Activity, Dumbbell, Apple, CheckSquare, Wallet, Moon, BookOpen, Clock, History } from 'lucide-react'
-import { getAllActivityLog, type ActivityEntry, type ActivityType } from '@/lib/activityLog'
+import { Activity, Dumbbell, Apple, CheckSquare, Wallet, Moon, BookOpen, Clock, History, Plus, Trash2, Check, Pencil, ToggleLeft, ToggleRight, ArrowLeftRight } from 'lucide-react'
+import { getAllActivityLog, type ActivityEntry, type ActivityType, type ActivityAction } from '@/lib/activityLog'
+
+const ACTION_META: Record<ActivityAction, { icon: React.ReactNode; color: string; label: string }> = {
+  added:       { icon: <Plus size={8} strokeWidth={3} />,         color: 'var(--success)', label: 'C' },
+  completed:   { icon: <Check size={8} strokeWidth={3} />,        color: 'var(--cyan)',    label: 'D' },
+  deleted:     { icon: <Trash2 size={8} strokeWidth={2.5} />,     color: 'var(--error)',   label: 'D' },
+  updated:     { icon: <Pencil size={8} strokeWidth={2.5} />,     color: 'var(--warning)', label: 'U' },
+  edited:      { icon: <Pencil size={8} strokeWidth={2.5} />,     color: 'var(--warning)', label: 'U' },
+  toggled_on:  { icon: <ToggleRight size={8} strokeWidth={2.5} />,color: 'var(--success)', label: 'U' },
+  toggled_off: { icon: <ToggleLeft size={8} strokeWidth={2.5} />, color: 'var(--text-3)',  label: 'U' },
+  moved:       { icon: <ArrowLeftRight size={8} strokeWidth={2.5} />, color: 'var(--violet)', label: 'U' },
+}
 
 const TYPE_META: Record<ActivityType, { icon: React.ReactNode; color: string; label: string }> = {
   habit:        { icon: <Dumbbell size={11} />,    color: 'var(--violet)', label: 'Habit'    },
@@ -117,9 +128,25 @@ export default function ActivityPage() {
 
                   {/* Description */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-1)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-                      {entry.description}
-                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-1)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                        {entry.description}
+                      </p>
+                      {/* CRUD operation badge */}
+                      {ACTION_META[entry.action] && (() => {
+                        const am = ACTION_META[entry.action]
+                        return (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+                            background: `color-mix(in srgb, ${am.color} 15%, transparent)`,
+                            color: am.color,
+                          }}>
+                            {am.icon}
+                          </span>
+                        )
+                      })()}
+                    </div>
                     <p style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 1 }}>
                       {meta.label} · {entry.action.replace(/_/g, ' ')}
                     </p>
