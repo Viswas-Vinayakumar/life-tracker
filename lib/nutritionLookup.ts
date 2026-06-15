@@ -499,6 +499,12 @@ const FOODS: FoodRecord[] = [
     servingG: 150,
     aliases: ['corn', 'sweetcorn', 'sweet corn', 'mais'],
   },
+  {
+    name: 'Mixed Vegetables',
+    per100g: { calories: 45, protein: 2.5, carbs: 8.5, fat: 0.4, fiber: 3.0, sugar: 3.5, sodium_mg: 30 },
+    servingG: 100,
+    aliases: ['vegetables', 'vegetable', 'veggies', 'veggie', 'veg', 'mixed vegetables', 'mixed veg', 'gemüse', 'gemuese', 'salad veg'],
+  },
 
   // ── Prepared / Composite Dishes ───────────────────────────────────
   {
@@ -708,7 +714,65 @@ export interface LocalParseResult {
   matchedAny: boolean   // true if at least one part matched
 }
 
+// Connectors that join ingredients of a single composite dish.
+const COMPONENT_SPLIT = /\s+(?:and|with|plus|mit|und)\s+|\s*\+\s*|\s*&\s*/i
+// A trailing total weight, e.g. "… 200g" or "… ~250 ml"
+const TRAILING_TOTAL_RX = new RegExp(`^(.+?)\\s+~?(\\d+(?:\\.\\d+)?)\\s*(${UNIT_PATTERN})\\s*$`, 'i')
+
+// Compose nutrition for `grams` of a food (per-100g scaling).
+function scaleFood(food: FoodRecord, grams: number, label?: string): NutritionResult {
+  const r = grams / 100
+  return {
+    food_name: label ?? food.name,
+    calories:   Math.round(food.per100g.calories  * r),
+    protein:    Math.round(food.per100g.protein    * r * 10) / 10,
+    carbs:      Math.round(food.per100g.carbs      * r * 10) / 10,
+    fat:        Math.round(food.per100g.fat        * r * 10) / 10,
+    fiber:      Math.round(food.per100g.fiber      * r * 10) / 10,
+    sugar:      Math.round(food.per100g.sugar      * r * 10) / 10,
+    sodium_mg:  Math.round(food.per100g.sodium_mg  * r),
+  }
+}
+
+// Composite dish with one shared total weight, e.g.
+// "tortilla wrap with chicken and vegetables 200g". Splits the weight evenly
+// across the known ingredients and sums real per-ingredient data — far more
+// accurate than asking the model to guess a whole-dish macro split.
+function parseCompositeWithTotal(input: string): LocalParseResult | null {
+  if (/,/.test(input)) return null                       // commas = separate items, not one dish
+  if (!/\s+with\s+|\s*\+\s*/i.test(input)) return null    // need a composite indicator
+  const m = TRAILING_TOTAL_RX.exec(input.trim())
+  if (!m) return null
+  const foodText = m[1]
+  const totalGrams = Math.round(parseFloat(m[2]) * (UNIT_TO_G[m[3].toLowerCase()] ?? 1))
+  if (!(totalGrams > 0)) return null
+
+  const comps = foodText.split(COMPONENT_SPLIT).map(s => s.trim()).filter(Boolean)
+  if (comps.length < 2) return null
+  const foods = comps.map(c => lookupFood(c))
+  if (foods.some(f => !f)) return null                   // every ingredient must be known
+
+  const per = totalGrams / foods.length                  // even split across ingredients
+  const items = foods.map((f, i) => scaleFood(f!, per, `${f!.name} (${Math.round(per)}g)`))
+  const zero: NutritionResult = { food_name: '', calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium_mg: 0 }
+  const total = items.reduce((acc, r) => ({
+    food_name: acc.food_name ? `${acc.food_name} + ${r.food_name}` : r.food_name,
+    calories:  acc.calories  + r.calories,
+    protein:   Math.round((acc.protein + r.protein) * 10) / 10,
+    carbs:     Math.round((acc.carbs   + r.carbs)   * 10) / 10,
+    fat:       Math.round((acc.fat     + r.fat)     * 10) / 10,
+    fiber:     Math.round((acc.fiber   + r.fiber)   * 10) / 10,
+    sugar:     Math.round((acc.sugar   + r.sugar)   * 10) / 10,
+    sodium_mg: acc.sodium_mg + r.sodium_mg,
+  }), zero)
+  return { result: total, matchedAll: true, matchedAny: true }
+}
+
 export function parseNutritionLocally(input: string): LocalParseResult {
+  // Composite dish with a shared total weight → decompose into ingredients
+  const composite = parseCompositeWithTotal(input)
+  if (composite) return composite
+
   // Split on commas or " and " (case-insensitive)
   const parts = input.split(/,|\s+and\s+/i).map(p => p.trim()).filter(Boolean)
 

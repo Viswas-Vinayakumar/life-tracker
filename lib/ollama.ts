@@ -166,6 +166,17 @@ function setCachedNutrition(input: string, value: FoodNutrition): void {
   } catch { /* ignore storage errors */ }
 }
 
+// Keep an entry internally coherent: calories should track the macros
+// (Atwater: 4/4/9 kcal per g of protein/carb/fat). When the model's calorie
+// figure is missing or off by >20%, trust the macro-derived value.
+function reconcileMacros(n: FoodNutrition): FoodNutrition {
+  const macroKcal = n.protein * 4 + n.carbs * 4 + n.fat * 9
+  if (macroKcal > 20 && (n.calories <= 0 || Math.abs(n.calories - macroKcal) / macroKcal > 0.2)) {
+    return { ...n, calories: Math.round(macroKcal) }
+  }
+  return n
+}
+
 export async function parseFood(input: string): Promise<FoodNutrition> {
   const trimmed = input.trim()
 
@@ -191,8 +202,9 @@ export async function parseFood(input: string): Promise<FoodNutrition> {
       const name = aiResult.food_name.trim()
       const recognised = name.length > 1 && name.toLowerCase() !== trimmed.toLowerCase()
       if (hasData || recognised) {
-        setCachedNutrition(trimmed, aiResult)
-        return aiResult
+        const reconciled = reconcileMacros(aiResult)
+        setCachedNutrition(trimmed, reconciled)
+        return reconciled
       }
       // Empty/echoed name with no data — genuine failure; fall through
     } catch { /* fall through */ }
@@ -219,7 +231,7 @@ export async function parseFood(input: string): Promise<FoodNutrition> {
             carbs: a.carbs + i.carbohydrates_total_g, fat: a.fat + i.fat_total_g,
             fiber: a.fiber + i.fiber_g, sugar: a.sugar + i.sugar_g, sodium_mg: a.sodium_mg + i.sodium_mg,
           }), zero)
-          const result = { ...t, food_name: items.map(i => i.name).join(', ') }
+          const result = reconcileMacros({ ...t, food_name: items.map(i => i.name).join(', ') })
           setCachedNutrition(trimmed, result)
           return result
         }
