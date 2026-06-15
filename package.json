@@ -7,6 +7,7 @@
     "build": "next build",
     "export": "TAURI_BUILD=1 next build",
     "start": "next start",
+    "test": "node --experimental-strip-types lib/__tests__/nutritionLookup.test.ts",
     "lint": "eslint",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

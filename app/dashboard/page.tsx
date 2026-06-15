@@ -418,11 +418,11 @@ export default function DashboardPage() {
       </section>
 
       {/* ── Charts grid ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, alignItems: 'stretch' }}>
         {chartData.length > 0 && (
-          <section>
+          <section style={{ display: 'flex', flexDirection: 'column' }}>
             <p className="section-label">Gym vs Study</p>
-            <div className="card" style={{ padding: '14px 14px 10px' }}>
+            <div className="card" style={{ padding: '14px 14px 10px', flex: 1 }}>
               <div style={{ display: 'flex', gap: 10, marginBottom: 8 }}>
                 {[{ c: 'var(--violet)', l: `Gym (${gymDays}d)` }, { c: 'var(--cyan)', l: `Study (${studyDays}d)` }].map(d => (
                   <div key={d.l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -445,10 +445,10 @@ export default function DashboardPage() {
         )}
 
         {habitPieData.length > 0 && (
-          <section>
+          <section style={{ display: 'flex', flexDirection: 'column' }}>
             <p className="section-label">Habit Split</p>
-            <div className="card" style={{ padding: 14 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="card" style={{ padding: 14, flex: 1, display: 'flex', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
                 <PieChart width={90} height={90}>
                   <Pie data={habitPieData} cx={40} cy={40} innerRadius={22} outerRadius={40} dataKey="value" strokeWidth={0}>
                     {habitPieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
@@ -468,9 +468,9 @@ export default function DashboardPage() {
           </section>
         )}
 
-        <section>
+        <section style={{ display: 'flex', flexDirection: 'column' }}>
           <p className="section-label">Growth Level</p>
-          <div className="card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1, justifyContent: 'center' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <p style={{ fontSize: 11, color: 'var(--text-3)' }}>Level {level}</p>

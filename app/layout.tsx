@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next'
-import Script from 'next/script'
 import './globals.css'
 import Sidebar from '@/components/layout/Sidebar'
 import BottomNav from '@/components/layout/BottomNav'
@@ -24,15 +23,13 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <Script id="theme-init" strategy="beforeInteractive">{`
-        (function() {
-          try {
-            var stored = localStorage.getItem('theme');
-            var dark = stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches);
-            if (dark) document.documentElement.classList.add('dark');
-          } catch(e) {}
-        })()
-      `}</Script>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var stored=localStorage.getItem('theme');var dark=stored==='dark'||(!stored&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(dark)document.documentElement.classList.add('dark');}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body>
         {/* macOS desktop: sidebar + content */}
         <div className="hidden md:flex" style={{ height: '100dvh', width: '100vw', overflow: 'hidden', background: 'var(--bg)' }}>

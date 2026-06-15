@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
   output: isTauri ? 'export' : undefined,
   images: isTauri ? { unoptimized: true } : undefined,
   trailingSlash: isTauri ? true : false,
+  // Hide the on-screen dev indicator (floating Next.js logo) in the Tauri window
+  devIndicators: false,
 }
 
 export default nextConfig

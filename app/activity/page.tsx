@@ -128,25 +128,9 @@ export default function ActivityPage() {
 
                   {/* Description */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-1)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-                        {entry.description}
-                      </p>
-                      {/* CRUD operation badge */}
-                      {ACTION_META[entry.action] && (() => {
-                        const am = ACTION_META[entry.action]
-                        return (
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                            width: 16, height: 16, borderRadius: 4, flexShrink: 0,
-                            background: `color-mix(in srgb, ${am.color} 15%, transparent)`,
-                            color: am.color,
-                          }}>
-                            {am.icon}
-                          </span>
-                        )
-                      })()}
-                    </div>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-1)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                      {entry.description}
+                    </p>
                     <p style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 1 }}>
                       {meta.label} · {entry.action.replace(/_/g, ' ')}
                     </p>
@@ -156,6 +140,21 @@ export default function ActivityPage() {
                   <span className="tabular-nums" style={{ fontSize: 10, color: 'var(--text-3)', flexShrink: 0 }}>
                     {format(parseISO(entry.timestamp), 'HH:mm')}
                   </span>
+
+                  {/* CRUD operation badge — pinned to the right end */}
+                  {ACTION_META[entry.action] && (() => {
+                    const am = ACTION_META[entry.action]
+                    return (
+                      <span title={entry.action.replace(/_/g, ' ')} style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                        background: `color-mix(in srgb, ${am.color} 15%, transparent)`,
+                        color: am.color,
+                      }}>
+                        {am.icon}
+                      </span>
+                    )
+                  })()}
                 </div>
               )
             })}

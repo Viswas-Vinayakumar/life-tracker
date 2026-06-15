@@ -4,6 +4,7 @@ import type { DailyLog, FoodEntry } from '@/types'
 import { getGermanFoodContext } from './germanFoods'
 import { getProfile, buildProfileContext } from './profile'
 import { getGymKnowledgeContext } from './gymKnowledge'
+import { parseNutritionLocally } from './nutritionLookup'
 import type { WorkoutSession } from '@/types'
 
 const OLLAMA_BASE = 'http://127.0.0.1:11434'
@@ -97,36 +98,31 @@ export interface FoodNutrition {
 
 export async function parseFoodWithOllama(input: string): Promise<FoodNutrition> {
   const model = await getBestModel()
-  const profile = getProfile()
-  const profileCtx = buildProfileContext(profile)
   const germanCtx = getGermanFoodContext()
 
-  const systemContext = [
-    profileCtx,
-    'The user is on a CLEAN DIET targeting 10% body fat (currently ~12-14%). Prioritise accuracy for:',
-    '- Sugar content (goal: <25g/day total) — flag hidden sugars in processed foods',
-    '- Sodium content (goal: <2000mg/day) — common in German processed meats, bread, sauces',
-    '- Protein content (key for lean muscle building)',
-    'The user shops at German stores: REWE, ALDI, LIDL, NETTO, Penny, Edeka.',
-    'Use German product sizes and realistic German portion sizes.',
-    germanCtx,
-  ].filter(Boolean).join('\n\n')
+  // Concise prompt with non-zero examples — avoids small models copying a zero template
+  const prompt = `You are a nutrition database. Return ONLY a JSON object with real calorie values — never return 0 unless the food is literally calorie-free (e.g. water).
+
+EXAMPLES:
+"3 hard boiled eggs" → {"food_name":"Hard Boiled Eggs ×3","calories":234,"protein":19,"carbs":2,"fat":16,"fiber":0,"sugar":2,"sodium_mg":186}
+"200g chicken breast" → {"food_name":"Grilled Chicken Breast (200g)","calories":330,"protein":62,"carbs":0,"fat":7,"fiber":0,"sugar":0,"sodium_mg":148}
+"banana" → {"food_name":"Banana (1 medium)","calories":107,"protein":1,"carbs":27,"fat":0,"fiber":3,"sugar":15,"sodium_mg":1}
+
+${germanCtx}
+
+Now parse this food and return JSON with ACCURATE non-zero values. Sum all items listed:
+"${input}"
+
+JSON only, no markdown, no explanation:`
 
   const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(12000),
+    signal: AbortSignal.timeout(15000),
     body: JSON.stringify({
-      model, stream: false, format: 'json', options: FAST_OPTIONS,
-      messages: [{
-        role: 'user',
-        content: `${systemContext}
-
-Nutrition expert. Parse food, return ONLY JSON, no markdown.
-Food: "${input}"
-{"food_name":"","calories":0,"protein":0,"carbs":0,"fat":0,"fiber":0,"sugar":0,"sodium_mg":0}
-- Sum all items. German portions. Be exact on sugar + sodium.`,
-      }],
+      model, stream: false, format: 'json',
+      options: { ...FAST_OPTIONS, num_predict: 350 },
+      messages: [{ role: 'user', content: prompt }],
     }),
   })
   if (!res.ok) throw new Error(`Ollama error: ${res.status}`)
@@ -136,39 +132,103 @@ Food: "${input}"
   return {
     food_name:  String(parsed.food_name ?? input),
     calories:   Math.round(Number(parsed.calories) || 0),
-    protein:    Math.round(Number(parsed.protein) * 10) / 10,
-    carbs:      Math.round(Number(parsed.carbs) * 10) / 10,
-    fat:        Math.round(Number(parsed.fat) * 10) / 10,
-    fiber:      Math.round(Number(parsed.fiber) * 10) / 10,
-    sugar:      Math.round(Number(parsed.sugar) * 10) / 10,
+    protein:    Math.round(Number(parsed.protein)  * 10) / 10,
+    carbs:      Math.round(Number(parsed.carbs)    * 10) / 10,
+    fat:        Math.round(Number(parsed.fat)      * 10) / 10,
+    fiber:      Math.round(Number(parsed.fiber)    * 10) / 10,
+    sugar:      Math.round(Number(parsed.sugar)    * 10) / 10,
     sodium_mg:  Math.round(Number(parsed.sodium_mg) || 0),
   }
 }
 
-export async function parseFood(input: string): Promise<FoodNutrition> {
-  if (await isOllamaRunning()) return parseFoodWithOllama(input)
+const NUTRITION_CACHE_KEY = 'lifeos_nutrition_cache_v1'
 
+function getCachedNutrition(input: string): FoodNutrition | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(NUTRITION_CACHE_KEY)
+    if (!raw) return null
+    const cache: Record<string, FoodNutrition> = JSON.parse(raw)
+    return cache[input.toLowerCase().trim()] ?? null
+  } catch { return null }
+}
+
+function setCachedNutrition(input: string, value: FoodNutrition): void {
+  if (typeof window === 'undefined') return
+  try {
+    const raw = localStorage.getItem(NUTRITION_CACHE_KEY)
+    const cache: Record<string, FoodNutrition> = raw ? JSON.parse(raw) : {}
+    cache[input.toLowerCase().trim()] = value
+    // Keep cache to 200 entries to avoid bloat
+    const keys = Object.keys(cache)
+    if (keys.length > 200) delete cache[keys[0]]
+    localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(cache))
+  } catch { /* ignore storage errors */ }
+}
+
+export async function parseFood(input: string): Promise<FoodNutrition> {
+  const trimmed = input.trim()
+
+  // 1. Local nutrition DB — instant, no AI needed for common foods
+  const local = parseNutritionLocally(trimmed)
+  if (local.matchedAll) return local.result
+
+  // 2. localStorage cache for Ollama results (skip repeated AI calls)
+  const cached = getCachedNutrition(trimmed)
+  if (cached) return cached
+
+  // 3. Ollama — for complex dishes or unrecognised foods
+  let aiAttempted = false
+  if (await isOllamaRunning()) {
+    aiAttempted = true
+    try {
+      const aiResult = await parseFoodWithOllama(trimmed)
+      const hasData = aiResult.calories > 0 || aiResult.protein > 0 || aiResult.carbs > 0
+        || aiResult.fat > 0 || aiResult.fiber > 0 || aiResult.sugar > 0 || aiResult.sodium_mg > 0
+      // Some foods are genuinely ~0 kcal (coffee, tea, water, diet drinks). The AI
+      // signals it understood the food by returning a real name that isn't just an
+      // echo of the typed input. A true failure returns an empty name or echoes input.
+      const name = aiResult.food_name.trim()
+      const recognised = name.length > 1 && name.toLowerCase() !== trimmed.toLowerCase()
+      if (hasData || recognised) {
+        setCachedNutrition(trimmed, aiResult)
+        return aiResult
+      }
+      // Empty/echoed name with no data — genuine failure; fall through
+    } catch { /* fall through */ }
+  }
+
+  // 4. Partial local match is better than nothing
+  if (local.matchedAny) return local.result
+
+  // 5. CalorieNinjas API
   const key = process.env.NEXT_PUBLIC_CALORIE_NINJAS_API_KEY
   if (key && key !== 'your_key_here') {
-    const res = await fetch(
-      `https://api.calorieninjas.com/v1/nutrition?query=${encodeURIComponent(input)}`,
-      { headers: { 'X-Api-Key': key } }
-    )
-    if (res.ok) {
-      const data = await res.json()
-      const items = data.items ?? []
-      if (items.length) {
-        type Item = { calories: number; protein_g: number; carbohydrates_total_g: number; fat_total_g: number; fiber_g: number; sugar_g: number; sodium_mg: number; name: string }
-        const t = items.reduce((a: FoodNutrition, i: Item) => ({
-          food_name: '', calories: a.calories + i.calories, protein: a.protein + i.protein_g,
-          carbs: a.carbs + i.carbohydrates_total_g, fat: a.fat + i.fat_total_g,
-          fiber: a.fiber + i.fiber_g, sugar: a.sugar + i.sugar_g, sodium_mg: a.sodium_mg + i.sodium_mg,
-        }), { food_name: '', calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium_mg: 0 })
-        return { ...t, food_name: items.map((i: Item) => i.name).join(', ') }
+    try {
+      const res = await fetch(
+        `https://api.calorieninjas.com/v1/nutrition?query=${encodeURIComponent(trimmed)}`,
+        { headers: { 'X-Api-Key': key } }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        const items: Array<{ calories: number; protein_g: number; carbohydrates_total_g: number; fat_total_g: number; fiber_g: number; sugar_g: number; sodium_mg: number; name: string }> = data.items ?? []
+        if (items.length) {
+          const zero: FoodNutrition = { food_name: '', calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium_mg: 0 }
+          const t = items.reduce((a, i) => ({
+            food_name: '', calories: a.calories + i.calories, protein: a.protein + i.protein_g,
+            carbs: a.carbs + i.carbohydrates_total_g, fat: a.fat + i.fat_total_g,
+            fiber: a.fiber + i.fiber_g, sugar: a.sugar + i.sugar_g, sodium_mg: a.sodium_mg + i.sodium_mg,
+          }), zero)
+          const result = { ...t, food_name: items.map(i => i.name).join(', ') }
+          setCachedNutrition(trimmed, result)
+          return result
+        }
       }
-    }
+    } catch { /* fall through */ }
   }
-  throw new Error('no_ai')
+
+  // AI was available but couldn't produce a usable result → distinct from "no AI at all"
+  throw new Error(aiAttempted ? 'parse_failed' : 'no_ai')
 }
 
 // ─── Food / Nutrition AI Summary ─────────────────────────────────

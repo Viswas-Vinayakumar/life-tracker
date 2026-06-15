@@ -121,6 +121,8 @@ export default function FoodPage() {
   const [loading, setLoading] = useState(true)
   const [ollamaOk, setOllamaOk] = useState<boolean | null>(null)
   const [input, setInput] = useState('')
+  const [qty, setQty] = useState('')
+  const [unit, setUnit] = useState('g')
   const [mealType, setMealType] = useState<FoodEntry['meal_type']>('snack')
   const [parsing, setParsing] = useState(false)
   const [confirm, setConfirm] = useState<{ open: boolean; entry?: FoodEntry }>({ open: false })
@@ -164,22 +166,36 @@ export default function FoodPage() {
     setAiLoading(false)
   }
 
+  const buildQuery = (): string => {
+    const food = input.trim()
+    if (!food) return ''
+    const q = qty.trim()
+    if (!q || !unit || unit === 'auto') return food
+    if (unit === 'pcs') return `${q} ${food}`
+    return `${food} ${q}${unit}`
+  }
+
   const handleAdd = async () => {
-    if (!input.trim() || parsing) return
+    const query = buildQuery()
+    if (!query || parsing) return
     setParsing(true)
     try {
-      const nutrition = await parseFood(input.trim())
-      const entry = await addFoodEntry({ date: TODAY, raw_input: input.trim(), meal_type: mealType, ...nutrition })
+      const nutrition = await parseFood(query)
+      const entry = await addFoodEntry({ date: TODAY, raw_input: query, meal_type: mealType, ...nutrition })
       const next = [...food, entry]
       setFood(next)
       setInput('')
-      await logActivity('food', 'added', `Logged ${nutrition.food_name ?? input.trim()} (${nutrition.calories} kcal)`)
+      setQty('')
+      await logActivity('food', 'added', `Logged ${nutrition.food_name ?? query} (${nutrition.calories} kcal)`)
       toast.success(`${nutrition.food_name ?? 'Food'} — ${nutrition.calories} kcal`)
-      // Refresh AI summary after adding food
       if (ollamaOk) { aiRequested.current = false; loadAiSummary(next, true) }
     } catch (e) {
       const msg = e instanceof Error ? e.message : ''
-      toast.error(msg === 'no_ai' ? 'No AI — install Ollama or add CalorieNinjas key' : 'Could not parse food')
+      toast.error(
+        msg === 'no_ai'
+          ? 'No AI — start Ollama or add CalorieNinjas key'
+          : `Couldn't recognise "${input.trim()}" — check the spelling or add a quantity (e.g. 200g)`
+      )
     } finally { setParsing(false) }
   }
 
@@ -239,6 +255,7 @@ export default function FoodPage() {
       <div className="card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10, animation: 'fade-up 0.2s 0.04s ease both' }}>
         <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Log what you ate</p>
         <div style={{ display: 'flex', gap: 8 }}>
+          {/* Meal type */}
           <select value={mealType} onChange={e => setMealType(e.target.value as FoodEntry['meal_type'])}
             style={{ height: 38, padding: '0 10px', borderRadius: 9, border: '1px solid var(--border)', fontSize: 13, background: 'var(--bg-2)', color: 'var(--text-1)', flexShrink: 0, cursor: 'default' }}>
             <option value="breakfast">🌅 Breakfast</option>
@@ -246,13 +263,34 @@ export default function FoodPage() {
             <option value="dinner">🌙 Dinner</option>
             <option value="snack">🍎 Snack</option>
           </select>
+          {/* Food name */}
           <input
             value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()}
-            placeholder="e.g. Magerquark mit Honig, Hähnchenbrust mit Reis, 2 Eier…" disabled={parsing}
-            style={{ flex: 1, height: 38, borderRadius: 9, border: '1px solid var(--border)', padding: '0 12px', fontSize: 13, background: 'var(--bg-2)', color: 'var(--text-1)', transition: 'border-color 0.15s' }}
+            placeholder="Food name — e.g. chicken breast, 3 eggs, pommes 200g…" disabled={parsing}
+            style={{ flex: 1, height: 38, borderRadius: 9, border: '1px solid var(--border)', padding: '0 12px', fontSize: 13, background: 'var(--bg-2)', color: 'var(--text-1)', transition: 'border-color 0.15s', minWidth: 0 }}
             onFocus={e => (e.target.style.borderColor = 'var(--accent)')}
             onBlur={e => (e.target.style.borderColor = 'var(--border)')}
           />
+          {/* Optional quantity */}
+          <input
+            type="number" min="0" step="any"
+            value={qty} onChange={e => setQty(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()}
+            placeholder="Qty" disabled={parsing}
+            style={{ width: 62, height: 38, borderRadius: 9, border: '1px solid var(--border)', padding: '0 8px', fontSize: 13, background: 'var(--bg-2)', color: 'var(--text-1)', flexShrink: 0, textAlign: 'center' }}
+          />
+          {/* Unit */}
+          <select value={unit} onChange={e => setUnit(e.target.value)}
+            style={{ height: 38, padding: '0 6px', borderRadius: 9, border: '1px solid var(--border)', fontSize: 12, background: 'var(--bg-2)', color: 'var(--text-1)', flexShrink: 0, cursor: 'default' }}>
+            <option value="auto">—</option>
+            <option value="g">g</option>
+            <option value="ml">ml</option>
+            <option value="pcs">pcs</option>
+            <option value="oz">oz</option>
+            <option value="tbsp">tbsp</option>
+            <option value="tsp">tsp</option>
+            <option value="cup">cup</option>
+          </select>
+          {/* Add button */}
           <button onClick={handleAdd} disabled={parsing || !input.trim()}
             style={{ width: 38, height: 38, borderRadius: 9, background: 'var(--accent)', border: 'none', cursor: 'default', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: (parsing || !input.trim()) ? 0.4 : 1, transition: 'opacity 0.15s, transform 0.1s' }}
             onMouseDown={e => { if (!parsing && input.trim()) e.currentTarget.style.transform = 'scale(0.92)' }}
@@ -260,11 +298,10 @@ export default function FoodPage() {
             {parsing ? <Loader2 size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Plus size={15} />}
           </button>
         </div>
-        {ollamaOk === false && (
-          <p style={{ fontSize: 11, color: 'var(--text-3)' }}>
-            💡 AI parsing: <code style={{ fontSize: 10 }}>brew install ollama && ollama pull llama3.2:3b</code>
-          </p>
-        )}
+        <p style={{ fontSize: 10, color: 'var(--text-3)' }}>
+          Tip: type everything in the name field <span style={{ opacity: 0.6 }}>(e.g. "3 eggs" or "pommes 200g")</span> or use the qty + unit fields for precision
+          {ollamaOk === false && <span> · 💡 <code style={{ fontSize: 9 }}>ollama pull llama3.2:3b</code> for AI</span>}
+        </p>
       </div>
 
       {/* ── 2-column: macros left, AI summary right ── */}
