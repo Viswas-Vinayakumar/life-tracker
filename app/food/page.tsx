@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { format } from 'date-fns'
-import { Flame, Loader2, Plus, Trash2, Leaf, RefreshCw, Sparkles, ChevronRight } from 'lucide-react'
+import { Flame, Loader2, Plus, Trash2, Leaf, RefreshCw, Sparkles, ChevronRight, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getFoodEntries, addFoodEntry, deleteFoodEntry, parseFood } from '@/lib/db'
-import { isOllamaRunning, getFoodSummary, type FoodSummary } from '@/lib/ollama'
+import { isOllamaRunning, getFoodSummary, noteVerifiedFood, type FoodSummary } from '@/lib/ollama'
+import { isVerified, setVerifiedNutrition, removeVerifiedNutrition } from '@/lib/verifiedNutrition'
 import { logActivity } from '@/lib/activityLog'
 import type { FoodEntry } from '@/types'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
@@ -126,6 +127,8 @@ export default function FoodPage() {
   const [mealType, setMealType] = useState<FoodEntry['meal_type']>('snack')
   const [parsing, setParsing] = useState(false)
   const [confirm, setConfirm] = useState<{ open: boolean; entry?: FoodEntry }>({ open: false })
+  // Which entries the user has confirmed as accurate (keyed by raw_input)
+  const [verified, setVerified] = useState<Record<string, boolean>>({})
 
   // AI food summary
   const [aiSummary, setAiSummary] = useState<FoodSummary | null>(null)
@@ -137,6 +140,13 @@ export default function FoodPage() {
       .then(([f, ollama]) => { setFood(f); setOllamaOk(ollama); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])
+
+  // Reflect which logged foods are already confirmed accurate
+  useEffect(() => {
+    const map: Record<string, boolean> = {}
+    for (const e of food) map[e.raw_input] = isVerified(e.raw_input)
+    setVerified(map)
+  }, [food])
 
   // Auto-load AI summary when food is ready + Ollama is up
   useEffect(() => {
@@ -197,6 +207,34 @@ export default function FoodPage() {
           : `Couldn't recognise "${input.trim()}" — check the spelling or add a quantity (e.g. 200g)`
       )
     } finally { setParsing(false) }
+  }
+
+  // Confirm/un-confirm that an entry's values are accurate. Confirming stores the
+  // values as verified ground truth (reused verbatim by parseFood next time) and
+  // teaches the coaching AI's memory — so the app learns this food over time.
+  const toggleVerified = async (entry: FoodEntry) => {
+    const key = entry.raw_input
+    if (isVerified(key)) {
+      removeVerifiedNutrition(key)
+      setVerified(v => ({ ...v, [key]: false }))
+      toast('Accuracy confirmation removed')
+      return
+    }
+    const e = entry as FoodEntry & { sugar?: number; sodium_mg?: number }
+    setVerifiedNutrition(key, {
+      food_name: entry.food_name ?? entry.raw_input,
+      calories: entry.calories ?? 0,
+      protein:  entry.protein ?? 0,
+      carbs:    entry.carbs ?? 0,
+      fat:      entry.fat ?? 0,
+      fiber:    entry.fiber ?? 0,
+      sugar:    e.sugar ?? 0,
+      sodium_mg: e.sodium_mg ?? 0,
+    })
+    setVerified(v => ({ ...v, [key]: true }))
+    noteVerifiedFood(entry.food_name ?? entry.raw_input, entry.calories ?? 0, entry.protein ?? 0)
+    await logActivity('food', 'updated', `Confirmed accurate: ${entry.food_name ?? entry.raw_input}`)
+    toast.success('Confirmed accurate — the app will remember these values')
   }
 
   const handleDelete = async () => {
@@ -479,6 +517,32 @@ export default function FoodPage() {
                       {entry.fiber   != null && <span style={{ fontSize: 11, color: '#34d399' }}>Fi {entry.fiber}g</span>}
                     </div>
                   </div>
+                  {/* Confirm accuracy — teaches the app these values are correct */}
+                  {(() => {
+                    const isV = verified[entry.raw_input]
+                    return (
+                      <button
+                        onClick={() => toggleVerified(entry)}
+                        title={isV
+                          ? 'Confirmed accurate — the app remembers these values. Click to undo.'
+                          : 'Confirm these values are accurate so the app learns them'}
+                        style={{
+                          width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                          border: `1px solid ${isV ? 'color-mix(in srgb, var(--success) 35%, transparent)' : 'var(--border-2)'}`,
+                          background: isV ? 'color-mix(in srgb, var(--success) 12%, transparent)' : 'none',
+                          color: isV ? 'var(--success)' : 'var(--text-3)',
+                          cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          transition: 'background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s',
+                        }}
+                        onMouseEnter={e => { if (!isV) { e.currentTarget.style.background = 'color-mix(in srgb, var(--success) 9%, transparent)'; e.currentTarget.style.color = 'var(--success)' } }}
+                        onMouseLeave={e => { if (!isV) { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-3)' } }}
+                        onMouseDown={e => (e.currentTarget.style.transform = 'scale(0.88)')}
+                        onMouseUp={e => (e.currentTarget.style.transform = 'scale(1)')}
+                      >
+                        <CheckCircle2 size={13} />
+                      </button>
+                    )
+                  })()}
                   <button
                     onClick={() => setConfirm({ open: true, entry })}
                     title="Delete entry"

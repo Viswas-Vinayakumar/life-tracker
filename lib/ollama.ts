@@ -5,6 +5,7 @@ import { getGermanFoodContext } from './germanFoods'
 import { getProfile, buildProfileContext } from './profile'
 import { getGymKnowledgeContext } from './gymKnowledge'
 import { parseNutritionLocally } from './nutritionLookup'
+import { getVerifiedNutrition } from './verifiedNutrition'
 import type { WorkoutSession } from '@/types'
 
 const OLLAMA_BASE = 'http://127.0.0.1:11434'
@@ -42,6 +43,12 @@ function appendAIMemory(update: { pattern?: string; foodHabit?: string; win?: st
     lastUpdated: new Date().toISOString(),
   }
   localStorage.setItem(AI_MEMORY_KEY, JSON.stringify(next))
+}
+
+// Record that the user confirmed a food's values — teaches the coaching AI
+// which foods are trusted/known so its analysis references real numbers.
+export function noteVerifiedFood(name: string, calories: number, protein: number): void {
+  appendAIMemory({ foodHabit: `Verified accurate: ${name} ≈ ${calories}kcal, ${protein}g protein` })
 }
 
 function buildMemoryContext(): string {
@@ -179,6 +186,11 @@ function reconcileMacros(n: FoodNutrition): FoodNutrition {
 
 export async function parseFood(input: string): Promise<FoodNutrition> {
   const trimmed = input.trim()
+
+  // 0. User-verified ground truth — highest priority. Once the user confirms a
+  // food's values are accurate, reuse them verbatim (the app's own learning).
+  const verified = getVerifiedNutrition(trimmed)
+  if (verified) return verified
 
   // 1. Local nutrition DB — instant, no AI needed for common foods
   const local = parseNutritionLocally(trimmed)
