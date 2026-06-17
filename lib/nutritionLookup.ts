@@ -56,6 +56,14 @@ const FOODS: FoodRecord[] = [
     servingG: 33,
     aliases: ['egg white', 'egg whites', 'eiweiß', 'eiklarung'],
   },
+  {
+    // Plain 2-egg omelette cooked with a little fat. servingG 120 ≈ a 2-egg omelette.
+    name: 'Omelette',
+    per100g: { calories: 165, protein: 11.0, carbs: 1.0, fat: 13.0, fiber: 0, sugar: 1.0, sodium_mg: 170 },
+    servingG: 120,
+    aliases: ['omelette', 'omelet', 'omelett', 'omlette', 'omlet', 'eieromelett',
+      'plain omelette', 'eier omelett', 'egg omelette'],
+  },
 
   // ── Potatoes & Fries ──────────────────────────────────────────────
   {
@@ -214,10 +222,13 @@ const FOODS: FoodRecord[] = [
     aliases: ['white bread', 'weißbrot', 'toast', 'toast bread', 'toastbrot', 'sandwich bread', 'brot'],
   },
   {
+    // German Vollkornbrot / Schwarzbrot reality: ~9g protein per 100g, a real
+    // slice is ~45g (not 30g). Keeps "2 slices" ≈ 90g, ~18g protein-from-bread max.
     name: 'Whole Wheat Bread',
-    per100g: { calories: 247, protein: 13.0, carbs: 41.0, fat: 3.4, fiber: 6.8, sugar: 5.6, sodium_mg: 480 },
-    servingG: 30,
-    aliases: ['whole wheat bread', 'wholemeal bread', 'vollkornbrot', 'wholegrain bread', 'dark bread'],
+    per100g: { calories: 230, protein: 9.0, carbs: 40.0, fat: 3.0, fiber: 7.0, sugar: 4.0, sodium_mg: 450 },
+    servingG: 45,
+    aliases: ['whole wheat bread', 'wholemeal bread', 'vollkornbrot', 'vollkorn bread',
+      'vollkorn', 'wholegrain bread', 'whole grain bread', 'dark bread', 'schwarzbrot'],
   },
 
   // ── Vegetables ────────────────────────────────────────────────────
@@ -773,8 +784,14 @@ export function parseNutritionLocally(input: string): LocalParseResult {
   const composite = parseCompositeWithTotal(input)
   if (composite) return composite
 
-  // Split on commas or " and " (case-insensitive)
-  const parts = input.split(/,|\s+and\s+/i).map(p => p.trim()).filter(Boolean)
+  // Split into separate items on commas, English/German connectors ("and", "und",
+  // "with", "mit", "plus") and "+"/"&". German "und"/"mit" matters for this app —
+  // e.g. "Vollkornbrot ×2 und Omelett" must decompose into bread + omelette so each
+  // is computed from real data instead of the model guessing the whole dish.
+  const parts = input
+    .split(/\s*,\s*|\s+(?:and|und|with|mit|plus)\s+|\s*[+&]\s*/i)
+    .map(p => p.trim())
+    .filter(Boolean)
 
   const zero: NutritionResult = {
     food_name: '', calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium_mg: 0,

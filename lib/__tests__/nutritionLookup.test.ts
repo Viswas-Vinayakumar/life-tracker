@@ -141,6 +141,32 @@ describe('parseNutritionLocally', () => {
     assert.equal(matchedAll, false, 'alien dish should not match')
     assert.ok(result.calories > 0, 'egg calories should still be counted')
   })
+
+  // Regression: German "und" connector + omelette must be deterministic, not
+  // sent to the model (which over-estimated this at 542 kcal / 34g protein).
+  test('"Vollkornbrot ×2 und Omelett" → deterministic, sane protein', () => {
+    const { result, matchedAll } = parseNutritionLocally('Vollkornbrot ×2 und Omelett')
+    assert.ok(matchedAll, 'should fully match (bread + omelette), skipping the AI')
+    // 2×45g bread (~18g) bread is ~8g protein; 120g omelette ~13g → ~21g total.
+    assert.ok(result.protein >= 16 && result.protein <= 26,
+      `expected ~21g protein (not the AI's 34g), got ${result.protein}`)
+    assert.ok(result.calories >= 330 && result.calories <= 470,
+      `expected ~400 kcal (not the AI's 542), got ${result.calories}`)
+  })
+
+  test('German "mit" connector: "Magerquark mit Honig"-style splits', () => {
+    // "und"/"mit" must split items the same way "and"/"with" do
+    const a = parseNutritionLocally('2 eggs und banana')
+    const b = parseNutritionLocally('2 eggs and banana')
+    assert.equal(a.result.calories, b.result.calories, 'und should equal and')
+  })
+
+  test('omelette alone is known to the local DB', () => {
+    const { result, matchedAll } = parseNutritionLocally('omelette')
+    assert.ok(matchedAll, 'omelette should match locally')
+    assert.ok(result.protein >= 9 && result.protein <= 18,
+      `expected ~13g protein for a 2-egg omelette, got ${result.protein}`)
+  })
 })
 
 // ── Trailing count & extra units ──────────────────────────────────
