@@ -1,8 +1,8 @@
 // Activity log — records every user action for audit trail + AI context
 import { offlinePut, offlineGetAll } from './offline'
 
-export type ActivityType = 'habit' | 'food' | 'todo' | 'finance' | 'vitals' | 'journal' | 'history_edit'
-export type ActivityAction = 'toggled_on' | 'toggled_off' | 'added' | 'completed' | 'deleted' | 'updated' | 'edited' | 'moved'
+export type ActivityType = 'habit' | 'food' | 'todo' | 'finance' | 'vitals' | 'journal' | 'history_edit' | 'ml'
+export type ActivityAction = 'toggled_on' | 'toggled_off' | 'added' | 'completed' | 'deleted' | 'updated' | 'edited' | 'moved' | 'rated' | 'corrected' | 'learned'
 
 export interface ActivityEntry {
   id: string

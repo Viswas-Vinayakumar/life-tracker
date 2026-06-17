@@ -72,6 +72,12 @@ export async function deleteFoodEntry(id: string): Promise<void> {
   try { await supabase.from('food_entries').delete().eq('id', id) } catch { /* offline */ }
 }
 
+export async function updateFoodEntry(id: string, patch: Partial<FoodEntry>): Promise<void> {
+  const existing = await offlineGet<FoodEntry>('food_entries', id)
+  if (existing) offlinePut('food_entries', { ...existing, ...patch, id } as Record<string, unknown>)
+  try { await supabase.from('food_entries').update(patch).eq('id', id) } catch { /* offline */ }
+}
+
 // ─── Finance ──────────────────────────────────────────────────
 
 export async function getFinanceEntries(month: string): Promise<FinancialEntry[]> {

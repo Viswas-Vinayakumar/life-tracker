@@ -45,10 +45,14 @@ function appendAIMemory(update: { pattern?: string; foodHabit?: string; win?: st
   localStorage.setItem(AI_MEMORY_KEY, JSON.stringify(next))
 }
 
-// Record that the user confirmed a food's values — teaches the coaching AI
-// which foods are trusted/known so its analysis references real numbers.
-export function noteVerifiedFood(name: string, calories: number, protein: number): void {
-  appendAIMemory({ foodHabit: `Verified accurate: ${name} ≈ ${calories}kcal, ${protein}g protein` })
+// Record that the user rated/corrected a food's values — teaches the coaching
+// AI which foods are trusted/known so its analysis references real numbers.
+export function noteVerifiedFood(
+  name: string, calories: number, protein: number,
+  rating?: number, corrected?: boolean,
+): void {
+  const stars = rating ? ` (${rating}★${corrected ? ', user-corrected' : ''})` : ''
+  appendAIMemory({ foodHabit: `Trusted: ${name} ≈ ${calories}kcal, ${protein}g protein${stars}` })
 }
 
 function buildMemoryContext(): string {
