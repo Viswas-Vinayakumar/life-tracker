@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Plus, Check, Trash2, ArrowDownToLine, ArrowUpToLine, Flag, Clock, Pencil, X, CalendarDays, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getTodos, addTodo, updateTodo, deleteTodo, completeTodo } from '@/lib/db'
+import { logActivity } from '@/lib/activityLog'
 import type { Todo } from '@/types'
 import { format, parseISO, isPast, isToday, differenceInDays } from 'date-fns'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
@@ -74,6 +75,7 @@ export default function TasksPage() {
       setTodos(prev => [todo, ...prev])
       setInput(''); setDeadline('')
       toast.success(`Added to ${targetList === 'today' ? 'Today' : 'Backlog'}`)
+      logActivity('todo', 'added', `Added task "${input.trim()}"`)
     } catch { toast.error('Failed to add') }
     finally { setAdding(false) }
   }
@@ -84,26 +86,32 @@ export default function TasksPage() {
       ? { ...t, status: 'completed', completed_at: new Date().toISOString() }
       : t))
     toast.success('Done! 🎉')
+    logActivity('todo', 'completed', `Completed "${todo.title}"`)
   }
 
   const handleSaveEdit = async (id: string, patch: Partial<Todo>) => {
+    const existing = todos.find(t => t.id === id)
     await updateTodo(id, patch)
     setTodos(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
     setEditId(null)
+    logActivity('todo', 'updated', `Updated task "${patch.title ?? existing?.title ?? id}"`)
   }
 
   const handleDelete = async () => {
     if (!confirm.id) return
+    const target = todos.find(t => t.id === confirm.id)
     await deleteTodo(confirm.id)
     setTodos(prev => prev.filter(t => t.id !== confirm.id))
     setConfirm({ open: false })
     toast.success('Deleted')
+    logActivity('todo', 'deleted', `Deleted task "${target?.title ?? confirm.id}"`)
   }
 
   const handleMove = async (todo: Todo, to: 'today' | 'backlog') => {
     await updateTodo(todo.id!, { list: to })
     setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, list: to } : t))
     toast.success(`Moved to ${to === 'today' ? 'Today' : 'Backlog'}`)
+    logActivity('todo', 'moved', `Moved "${todo.title}" to ${to === 'today' ? 'Today' : 'Backlog'}`)
   }
 
   const tabs: { id: Tab; label: string; count: number }[] = [

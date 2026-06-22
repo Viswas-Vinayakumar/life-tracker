@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { CalendarCheck, CheckSquare, Wallet, BarChart3, Clock, UtensilsCrossed, Activity } from 'lucide-react'
+import { CalendarCheck, CheckSquare, Wallet, BarChart3, Clock, UtensilsCrossed, Activity, Dumbbell } from 'lucide-react'
 import Logo from './Logo'
 import ThemeToggle from './ThemeToggle'
 import ProfileModal, { ProfileButton } from '@/components/profile/ProfileModal'
@@ -11,6 +11,7 @@ import ProfileModal, { ProfileButton } from '@/components/profile/ProfileModal'
 const nav = [
   { href: '/today',     icon: CalendarCheck,    label: 'Today'   },
   { href: '/food',      icon: UtensilsCrossed,  label: 'Food'    },
+  { href: '/gym',       icon: Dumbbell,         label: 'Gym'     },
   { href: '/tasks',     icon: CheckSquare,      label: 'Tasks'   },
   { href: '/finance',   icon: Wallet,           label: 'Finance' },
   { href: '/dashboard', icon: BarChart3,        label: 'Stats'   },

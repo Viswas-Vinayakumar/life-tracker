@@ -3,6 +3,10 @@
 import type { DailyLog, FoodEntry } from '@/types'
 import { getGermanFoodContext } from './germanFoods'
 import { getProfile, buildProfileContext } from './profile'
+import { getGymKnowledgeContext } from './gymKnowledge'
+import { parseNutritionLocally } from './nutritionLookup'
+import { getVerifiedNutrition } from './verifiedNutrition'
+import type { WorkoutSession } from '@/types'
 
 const OLLAMA_BASE = 'http://127.0.0.1:11434'
 const AI_MEMORY_KEY = 'lifeos_ai_memory'
@@ -41,6 +45,16 @@ function appendAIMemory(update: { pattern?: string; foodHabit?: string; win?: st
   localStorage.setItem(AI_MEMORY_KEY, JSON.stringify(next))
 }
 
+// Record that the user rated/corrected a food's values — teaches the coaching
+// AI which foods are trusted/known so its analysis references real numbers.
+export function noteVerifiedFood(
+  name: string, calories: number, protein: number,
+  rating?: number, corrected?: boolean,
+): void {
+  const stars = rating ? ` (${rating}★${corrected ? ', user-corrected' : ''})` : ''
+  appendAIMemory({ foodHabit: `Trusted: ${name} ≈ ${calories}kcal, ${protein}g protein${stars}` })
+}
+
 function buildMemoryContext(): string {
   const mem = getAIMemory()
   const lines: string[] = []
@@ -69,12 +83,17 @@ export async function getOllamaModels(): Promise<string[]> {
 
 async function getBestModel(): Promise<string> {
   const models = await getOllamaModels()
-  const preferred = ['llama3.2:3b', 'llama3.2', 'llama3.1', 'llama3', 'gemma3:4b', 'gemma3', 'mistral', 'phi4', 'phi3']
+  // Prefer small fast models — 3b is enough for JSON extraction
+  const preferred = ['llama3.2:3b', 'gemma3:4b', 'phi4-mini', 'llama3.2', 'gemma3', 'llama3.1', 'llama3', 'mistral', 'phi4', 'phi3']
   for (const p of preferred) {
     if (models.some(m => m.startsWith(p))) return models.find(m => m.startsWith(p))!
   }
   return models[0] ?? 'llama3.2'
 }
+
+// Ollama inference options — low temp for speed + determinism
+const FAST_OPTIONS = { temperature: 0.05, top_k: 5, top_p: 0.9, num_predict: 280, num_ctx: 2048 }
+const ANALYSIS_OPTIONS = { temperature: 0.2, top_k: 20, top_p: 0.9, num_predict: 400, num_ctx: 3072 }
 
 // ─── Food parsing ─────────────────────────────────────────────────
 export interface FoodNutrition {
@@ -90,20 +109,22 @@ export interface FoodNutrition {
 
 export async function parseFoodWithOllama(input: string): Promise<FoodNutrition> {
   const model = await getBestModel()
-  const profile = getProfile()
-  const profileCtx = buildProfileContext(profile)
   const germanCtx = getGermanFoodContext()
 
-  const systemContext = [
-    profileCtx,
-    'The user is on a CLEAN DIET targeting 10% body fat (currently ~12-14%). Prioritise accuracy for:',
-    '- Sugar content (goal: <25g/day total) — flag hidden sugars in processed foods',
-    '- Sodium content (goal: <2000mg/day) — common in German processed meats, bread, sauces',
-    '- Protein content (key for lean muscle building)',
-    'The user shops at German stores: REWE, ALDI, LIDL, NETTO, Penny, Edeka.',
-    'Use German product sizes and realistic German portion sizes.',
-    germanCtx,
-  ].filter(Boolean).join('\n\n')
+  // Concise prompt with non-zero examples — avoids small models copying a zero template
+  const prompt = `You are a nutrition database. Return ONLY a JSON object with real calorie values — never return 0 unless the food is literally calorie-free (e.g. water).
+
+EXAMPLES:
+"3 hard boiled eggs" → {"food_name":"Hard Boiled Eggs ×3","calories":234,"protein":19,"carbs":2,"fat":16,"fiber":0,"sugar":2,"sodium_mg":186}
+"200g chicken breast" → {"food_name":"Grilled Chicken Breast (200g)","calories":330,"protein":62,"carbs":0,"fat":7,"fiber":0,"sugar":0,"sodium_mg":148}
+"banana" → {"food_name":"Banana (1 medium)","calories":107,"protein":1,"carbs":27,"fat":0,"fiber":3,"sugar":15,"sodium_mg":1}
+
+${germanCtx}
+
+Now parse this food and return JSON with ACCURATE non-zero values. Sum all items listed:
+"${input}"
+
+JSON only, no markdown, no explanation:`
 
   const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
     method: 'POST',
@@ -111,22 +132,8 @@ export async function parseFoodWithOllama(input: string): Promise<FoodNutrition>
     signal: AbortSignal.timeout(15000),
     body: JSON.stringify({
       model, stream: false, format: 'json',
-      messages: [{
-        role: 'user',
-        content: `${systemContext}
-
-You are a precision nutrition expert. Parse this food/meal and return ONLY valid JSON (no markdown):
-
-Food: "${input}"
-
-{"food_name":"string","calories":0,"protein":0,"carbs":0,"fat":0,"fiber":0,"sugar":0,"sodium_mg":0}
-
-Rules:
-- Be very precise, especially for sugar and sodium
-- If multiple items, sum all values
-- Use realistic German grocery store portions (e.g. Magerquark 200g, Vollkornbrot 50g slice)
-- If a product is from REWE/ALDI/LIDL, use their actual product nutrition data from the reference`,
-      }],
+      options: { ...FAST_OPTIONS, num_predict: 350 },
+      messages: [{ role: 'user', content: prompt }],
     }),
   })
   if (!res.ok) throw new Error(`Ollama error: ${res.status}`)
@@ -136,39 +143,120 @@ Rules:
   return {
     food_name:  String(parsed.food_name ?? input),
     calories:   Math.round(Number(parsed.calories) || 0),
-    protein:    Math.round(Number(parsed.protein) * 10) / 10,
-    carbs:      Math.round(Number(parsed.carbs) * 10) / 10,
-    fat:        Math.round(Number(parsed.fat) * 10) / 10,
-    fiber:      Math.round(Number(parsed.fiber) * 10) / 10,
-    sugar:      Math.round(Number(parsed.sugar) * 10) / 10,
+    protein:    Math.round(Number(parsed.protein)  * 10) / 10,
+    carbs:      Math.round(Number(parsed.carbs)    * 10) / 10,
+    fat:        Math.round(Number(parsed.fat)      * 10) / 10,
+    fiber:      Math.round(Number(parsed.fiber)    * 10) / 10,
+    sugar:      Math.round(Number(parsed.sugar)    * 10) / 10,
     sodium_mg:  Math.round(Number(parsed.sodium_mg) || 0),
   }
 }
 
-export async function parseFood(input: string): Promise<FoodNutrition> {
-  if (await isOllamaRunning()) return parseFoodWithOllama(input)
+const NUTRITION_CACHE_KEY = 'lifeos_nutrition_cache_v1'
 
+function getCachedNutrition(input: string): FoodNutrition | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(NUTRITION_CACHE_KEY)
+    if (!raw) return null
+    const cache: Record<string, FoodNutrition> = JSON.parse(raw)
+    return cache[input.toLowerCase().trim()] ?? null
+  } catch { return null }
+}
+
+function setCachedNutrition(input: string, value: FoodNutrition): void {
+  if (typeof window === 'undefined') return
+  try {
+    const raw = localStorage.getItem(NUTRITION_CACHE_KEY)
+    const cache: Record<string, FoodNutrition> = raw ? JSON.parse(raw) : {}
+    cache[input.toLowerCase().trim()] = value
+    // Keep cache to 200 entries to avoid bloat
+    const keys = Object.keys(cache)
+    if (keys.length > 200) delete cache[keys[0]]
+    localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(cache))
+  } catch { /* ignore storage errors */ }
+}
+
+// Keep an entry internally coherent: calories should track the macros
+// (Atwater: 4/4/9 kcal per g of protein/carb/fat). When the model's calorie
+// figure is missing or off by >20%, trust the macro-derived value.
+function reconcileMacros(n: FoodNutrition): FoodNutrition {
+  const macroKcal = n.protein * 4 + n.carbs * 4 + n.fat * 9
+  if (macroKcal > 20 && (n.calories <= 0 || Math.abs(n.calories - macroKcal) / macroKcal > 0.2)) {
+    return { ...n, calories: Math.round(macroKcal) }
+  }
+  return n
+}
+
+export async function parseFood(input: string): Promise<FoodNutrition> {
+  const trimmed = input.trim()
+
+  // 0. User-verified ground truth — highest priority. Once the user confirms a
+  // food's values are accurate, reuse them verbatim (the app's own learning).
+  const verified = getVerifiedNutrition(trimmed)
+  if (verified) return verified
+
+  // 1. Local nutrition DB — instant, no AI needed for common foods
+  const local = parseNutritionLocally(trimmed)
+  if (local.matchedAll) return local.result
+
+  // 2. localStorage cache for Ollama results (skip repeated AI calls)
+  const cached = getCachedNutrition(trimmed)
+  if (cached) return cached
+
+  // 3. Ollama — for complex dishes or unrecognised foods
+  let aiAttempted = false
+  if (await isOllamaRunning()) {
+    aiAttempted = true
+    try {
+      const aiResult = await parseFoodWithOllama(trimmed)
+      const hasData = aiResult.calories > 0 || aiResult.protein > 0 || aiResult.carbs > 0
+        || aiResult.fat > 0 || aiResult.fiber > 0 || aiResult.sugar > 0 || aiResult.sodium_mg > 0
+      // Some foods are genuinely ~0 kcal (coffee, tea, water, diet drinks). The AI
+      // signals it understood the food by returning a real name that isn't just an
+      // echo of the typed input. A true failure returns an empty name or echoes input.
+      const name = aiResult.food_name.trim()
+      const recognised = name.length > 1 && name.toLowerCase() !== trimmed.toLowerCase()
+      if (hasData || recognised) {
+        const reconciled = reconcileMacros(aiResult)
+        setCachedNutrition(trimmed, reconciled)
+        return reconciled
+      }
+      // Empty/echoed name with no data — genuine failure; fall through
+    } catch { /* fall through */ }
+  }
+
+  // 4. Partial local match is better than nothing
+  if (local.matchedAny) return local.result
+
+  // 5. CalorieNinjas API
   const key = process.env.NEXT_PUBLIC_CALORIE_NINJAS_API_KEY
   if (key && key !== 'your_key_here') {
-    const res = await fetch(
-      `https://api.calorieninjas.com/v1/nutrition?query=${encodeURIComponent(input)}`,
-      { headers: { 'X-Api-Key': key } }
-    )
-    if (res.ok) {
-      const data = await res.json()
-      const items = data.items ?? []
-      if (items.length) {
-        type Item = { calories: number; protein_g: number; carbohydrates_total_g: number; fat_total_g: number; fiber_g: number; sugar_g: number; sodium_mg: number; name: string }
-        const t = items.reduce((a: FoodNutrition, i: Item) => ({
-          food_name: '', calories: a.calories + i.calories, protein: a.protein + i.protein_g,
-          carbs: a.carbs + i.carbohydrates_total_g, fat: a.fat + i.fat_total_g,
-          fiber: a.fiber + i.fiber_g, sugar: a.sugar + i.sugar_g, sodium_mg: a.sodium_mg + i.sodium_mg,
-        }), { food_name: '', calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium_mg: 0 })
-        return { ...t, food_name: items.map((i: Item) => i.name).join(', ') }
+    try {
+      const res = await fetch(
+        `https://api.calorieninjas.com/v1/nutrition?query=${encodeURIComponent(trimmed)}`,
+        { headers: { 'X-Api-Key': key } }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        const items: Array<{ calories: number; protein_g: number; carbohydrates_total_g: number; fat_total_g: number; fiber_g: number; sugar_g: number; sodium_mg: number; name: string }> = data.items ?? []
+        if (items.length) {
+          const zero: FoodNutrition = { food_name: '', calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium_mg: 0 }
+          const t = items.reduce((a, i) => ({
+            food_name: '', calories: a.calories + i.calories, protein: a.protein + i.protein_g,
+            carbs: a.carbs + i.carbohydrates_total_g, fat: a.fat + i.fat_total_g,
+            fiber: a.fiber + i.fiber_g, sugar: a.sugar + i.sugar_g, sodium_mg: a.sodium_mg + i.sodium_mg,
+          }), zero)
+          const result = reconcileMacros({ ...t, food_name: items.map(i => i.name).join(', ') })
+          setCachedNutrition(trimmed, result)
+          return result
+        }
       }
-    }
+    } catch { /* fall through */ }
   }
-  throw new Error('no_ai')
+
+  // AI was available but couldn't produce a usable result → distinct from "no AI at all"
+  throw new Error(aiAttempted ? 'parse_failed' : 'no_ai')
 }
 
 // ─── Food / Nutrition AI Summary ─────────────────────────────────
@@ -205,39 +293,25 @@ export async function getFoodSummary(entries: FoodEntry[]): Promise<FoodSummary 
     : 2200
   const proteinTarget = profile.weightKg ? Math.round(profile.weightKg * 2.0) : 160
 
-  const prompt = `You are a precision personal nutrition coach and physique trainer. Analyse today's food log.
+  const prompt = `Brutally honest physique coach. No sugarcoating. Goal: 10% BF + lean muscle.
 
 ${profileCtx}
-
 ${memCtx}
 
-TODAY'S FOOD LOG (Germany):
-Items: ${foods}
-Totals: ${totalCal} kcal | ${totalProtein}g protein | ${totalCarbs}g carbs | ${totalFat}g fat | ${totalFiber}g fiber | ${totalSugar}g sugar | ${totalSodium}mg sodium
+TODAY: ${foods}
+${totalCal}kcal | ${totalProtein}g protein | ${totalSugar}g sugar | ${totalSodium}mg sodium | ${totalFiber}g fiber
 
-TARGETS:
-- Calories: ~${tdee} kcal (TDEE)
-- Protein: ${proteinTarget}g/day (2g per kg bodyweight for lean muscle)
-- Sugar: <25g/day (STRICT - clean diet, sub-10% BF goal)
-- Sodium: <2000mg/day (clean eating)
-- Fiber: >30g/day
+HARD LIMITS: protein≥${proteinTarget}g | sugar<25g | sodium<2000mg | cal~${tdee}kcal
 
-ANALYSIS PRIORITIES (in order):
-1. Was protein high enough for muscle retention/growth?
-2. Was sugar under 25g? (critical for fat loss to 10% BF)
-3. Was sodium under 2000mg? (water retention affects definition)
-4. Were calories appropriate for the goal?
-5. Food quality — whole foods vs processed?
-
-Respond ONLY with valid JSON, no markdown:
-{"headline":"punchy 8-word max sentence","rating":"excellent|good|fair|poor","insight":"2 specific sentences about today — mention actual numbers for protein/sugar/sodium if notable","tip":"one very specific actionable tip for tomorrow referencing actual foods or German grocery items","highlight":"the single best food choice today and why","foodHabit":"one short food pattern observation to remember about this user (for future coaching)","concern":"one nutrition concern to remember if any, else empty string"}`
+JSON only, no markdown:
+{"headline":"max 8 words, direct","rating":"excellent|good|fair|poor","insight":"2 sentences — call out failures by number, no softening","tip":"specific fix for tomorrow, name actual German foods","highlight":"best choice today and why","foodHabit":"one pattern to remember","concern":"main concern or empty string"}`
 
   try {
     const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(22000),
-      body: JSON.stringify({ model, stream: false, format: 'json', messages: [{ role: 'user', content: prompt }] }),
+      signal: AbortSignal.timeout(18000),
+      body: JSON.stringify({ model, stream: false, format: 'json', options: ANALYSIS_OPTIONS, messages: [{ role: 'user', content: prompt }] }),
     })
     if (!res.ok) return null
     const data = await res.json()
@@ -269,7 +343,12 @@ export interface LifeSummary {
   pattern: string
 }
 
-export async function getLifeSummary(logs: DailyLog[], food: FoodEntry[]): Promise<LifeSummary | null> {
+export async function getLifeSummary(
+  logs: DailyLog[],
+  food: FoodEntry[],
+  workouts?: WorkoutSession[],
+  todoStats?: { total: number; completed: number; pending: number },
+): Promise<LifeSummary | null> {
   if (!(await isOllamaRunning())) return null
 
   const n = logs.length
@@ -293,48 +372,79 @@ export async function getLifeSummary(logs: DailyLog[], food: FoodEntry[]): Promi
   const trend = last7Score > avgScore ? 'improving' : last7Score < avgScore ? 'declining' : 'steady'
 
   const avgCal    = food.length ? Math.round(food.reduce((s, f) => s + (f.calories ?? 0), 0) / n) : 0
-  const avgSugar  = food.length ? Math.round(food.reduce((s, f) => s + (f.sugar ?? 0), 0) / n) : 0
-  const avgSodium = food.length ? Math.round(food.reduce((s, f) => s + (f.sodium_mg ?? 0), 0) / n) : 0
+  const avgProtein = food.length ? Math.round(food.reduce((s, f) => s + (f.protein ?? 0), 0) / n) : 0
+  const avgSugar  = food.length ? Math.round(food.reduce((s, f) => s + ((f as FoodEntry & { sugar?: number }).sugar ?? 0), 0) / n) : 0
+  const avgSodium = food.length ? Math.round(food.reduce((s, f) => s + ((f as FoodEntry & { sodium_mg?: number }).sodium_mg ?? 0), 0) / n) : 0
+
+  // Gym session data
+  let gymCtx = 'No gym sessions tracked yet'
+  if (workouts && workouts.length > 0) {
+    const totalSessions = workouts.length
+    const avgVolume = Math.round(workouts.reduce((sum, w) =>
+      sum + w.exercises.reduce((s, e) => s + e.sets.reduce((v, set) => v + (set.reps * (set.weight_kg ?? 0)), 0), 0), 0
+    ) / totalSessions)
+    const musclesCovered = [...new Set(workouts.flatMap(w => w.exercises.map(e => e.muscle_group ?? 'General')))]
+    const lastSession = workouts[0]
+    gymCtx = `${totalSessions} sessions tracked | avg volume: ${avgVolume > 0 ? avgVolume + 'kg' : 'bodyweight'} | muscles trained: ${musclesCovered.join(', ')} | last session: ${lastSession.date} (${lastSession.exercises.map(e => e.name).join(', ')})`
+  }
+
+  // Task data
+  let taskCtx = 'No tasks tracked'
+  if (todoStats && todoStats.total > 0) {
+    const completionRate = Math.round(todoStats.completed / todoStats.total * 100)
+    taskCtx = `${todoStats.total} tasks total | ${todoStats.completed} completed (${completionRate}%) | ${todoStats.pending} pending`
+  }
 
   const model = await getBestModel()
   const profile = getProfile()
   const profileCtx = buildProfileContext(profile)
   const memCtx = buildMemoryContext()
 
-  const prompt = `You are a personal life coach and physique trainer AI. Analyse this person's life data.
+  const prompt = `You are a personal life OS coach — you have access to ALL areas of this person's life: fitness, nutrition, habits, study, tasks, and wellbeing. Give a holistic, cross-domain analysis.
 
 ${profileCtx}
 
 ${memCtx}
 
-PERFORMANCE DATA (last ${n} days):
-- Gym attendance: ${gymRate}% days (target: ${(profile.gymTargetDays ?? 4) * 14}% = ${profile.gymTargetDays ?? 4}x/week)
+=== COMPLETE LIFE DATA (last ${n} days) ===
+
+HABITS:
+- Gym attendance: ${gymRate}% days (target: ${(profile.gymTargetDays ?? 4)}x/week)
 - Study: ${studyRate}% days
 - Skincare AM: ${amRate}%, PM: ${pmRate}%
-- Average sleep: ${avgSleep}h (target: 8h — critical for body fat reduction & muscle recovery)
-- Average water: ${avgWater} glasses/day (target: 8 glasses)
-- Average performance score: ${avgScore}/100
-- Recent trend (7d vs overall): ${trend}
+- Avg performance score: ${avgScore}/100 | trend: ${trend}
+
+SLEEP & RECOVERY:
+- Average sleep: ${avgSleep}h (target: 8h — critical for cortisol, fat loss, muscle repair)
+- Average water: ${avgWater} glasses/day
+
+MOOD & ENERGY:
 - Average mood: ${avgMood}/10
-- Avg daily calories: ${avgCal > 0 ? avgCal + ' kcal' : 'not tracked'}
-- Avg daily sugar: ${avgSugar > 0 ? avgSugar + 'g (target <25g for 10% BF)' : 'not tracked'}
-- Avg daily sodium: ${avgSodium > 0 ? avgSodium + 'mg (target <2000mg)' : 'not tracked'}
 
-KEY COACHING PRIORITIES:
-1. Gym consistency (biggest lever for 10% BF + lean muscle)
-2. Sleep quality (affects cortisol → fat storage, muscle recovery)
-3. Nutrition adherence (clean diet, sugar/sodium control)
-4. Progressive training + recovery balance
+NUTRITION:
+- Avg calories: ${avgCal > 0 ? avgCal + ' kcal/day' : 'not tracked'}
+- Avg protein: ${avgProtein > 0 ? avgProtein + 'g/day (target 150g for muscle retention)' : 'not tracked'}
+- Avg sugar: ${avgSugar > 0 ? avgSugar + 'g/day (limit <25g for 10% BF)' : 'not tracked'}
+- Avg sodium: ${avgSodium > 0 ? avgSodium + 'mg/day (limit <2000mg)' : 'not tracked'}
 
-Respond with ONLY valid JSON, no markdown:
-{"headline":"punchy 10-word max sentence about overall status","insight":"2-3 sentences with specific numbers — what's their biggest strength and what's holding them back from 10% BF","suggestion":"one very specific actionable tip for the next 7 days — concrete, measurable","label":"peak|strong|growing|needs_work","pattern":"one key behavioral pattern observed about this person","win":"one thing consistently going well to reinforce","challenge":"one recurring challenge to note for future coaching"}`
+GYM SESSIONS:
+- ${gymCtx}
+
+TASKS & PRODUCTIVITY:
+- ${taskCtx}
+
+BRUTAL LIFE COACH. Tell the truth. Use real numbers. No softening.
+Priority: 10% BF requires gym 4x/week + protein>150g + sugar<25g + sleep 8h. Everything else is secondary.
+
+JSON only, no markdown:
+{"headline":"max 10 words, direct truth","insight":"2-3 sentences using actual numbers — what's working, what's failing, why they're not at 10% BF yet","suggestion":"the single most impactful change this week — specific, measurable","label":"peak|strong|growing|needs_work","pattern":"one cross-domain behavioral truth about this person","win":"one thing genuinely going well","challenge":"the real obstacle, no sugarcoating"}`
 
   try {
     const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(28000),
-      body: JSON.stringify({ model, stream: false, format: 'json', messages: [{ role: 'user', content: prompt }] }),
+      signal: AbortSignal.timeout(22000),
+      body: JSON.stringify({ model, stream: false, format: 'json', options: ANALYSIS_OPTIONS, messages: [{ role: 'user', content: prompt }] }),
     })
     if (!res.ok) return null
     const data = await res.json()
@@ -352,6 +462,84 @@ Respond with ONLY valid JSON, no markdown:
       suggestion: String(parsed.suggestion ?? ''),
       label: (['peak', 'strong', 'growing', 'needs_work'].includes(parsed.label) ? parsed.label : 'growing') as LifeSummary['label'],
       pattern:    String(parsed.pattern ?? ''),
+    }
+  } catch { return null }
+}
+
+// ─── Gym AI Coach ─────────────────────────────────────────────
+export interface GymCoachResponse {
+  rating: 'excellent' | 'good' | 'fair' | 'below_par'
+  headline: string
+  volume_analysis: string
+  overload_tip: string
+  next_session: string
+  recovery_tip: string
+  form_note?: string
+}
+
+export async function getGymCoaching(
+  session: WorkoutSession,
+  history: WorkoutSession[]
+): Promise<GymCoachResponse | null> {
+  if (!(await isOllamaRunning())) return null
+
+  const profile = getProfile()
+  const profileCtx = buildProfileContext(profile)
+  const gymKnowledge = getGymKnowledgeContext()
+  const memCtx = buildMemoryContext()
+  const model = await getBestModel()
+
+  const sessionSummary = session.exercises.map(ex => {
+    const setsStr = ex.sets.map((s, i) =>
+      `  Set ${i+1}: ${s.reps} reps${s.weight_kg ? ` @ ${s.weight_kg}kg` : ' (bodyweight)'}`
+    ).join('\n')
+    const totalVol = ex.sets.reduce((sum, s) => sum + s.reps * (s.weight_kg ?? 0), 0)
+    return `${ex.name}${ex.muscle_group ? ` [${ex.muscle_group}]` : ''}:\n${setsStr}\n  Volume: ${totalVol > 0 ? `${totalVol}kg` : `${ex.sets.reduce((s, set) => s + set.reps, 0)} total reps`}`
+  }).join('\n\n')
+
+  const historyCtx = history.slice(0, 5).map(h => {
+    const exNames = h.exercises.map(e => {
+      const top = e.sets.reduce((best, s) => (s.weight_kg ?? 0) > (best.weight_kg ?? 0) ? s : best, e.sets[0])
+      return `${e.name}: ${top?.reps}r×${top?.weight_kg ?? 'BW'}kg`
+    }).join(', ')
+    return `${h.date}: [${exNames}]${h.duration_min ? ` ${h.duration_min}min` : ''}`
+  }).join('\n')
+
+  const prompt = `${gymKnowledge}
+
+${profileCtx}
+${memCtx}
+
+BRUTAL PHYSIQUE COACH. Goal: lean muscle + 10% BF (currently ~${profile.bodyFatPct ?? 13}%). No praise unless earned.
+
+SESSION ${session.date}${session.duration_min ? ` · ${session.duration_min}min` : ''}:
+${sessionSummary}
+
+HISTORY: ${historyCtx || 'First session'}
+
+JSON only, no markdown:
+{"rating":"excellent|good|fair|below_par","headline":"max 8 words","volume_analysis":"2 sentences — call out weak points, flag missing muscle groups","overload_tip":"exact exercise + weight + reps for NEXT session","next_session":"muscle groups + recovery reason","recovery_tip":"specific tonight advice","form_note":"form issue if evident, else empty"}`
+
+  try {
+    const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(22000),
+      body: JSON.stringify({ model, stream: false, format: 'json', options: ANALYSIS_OPTIONS, messages: [{ role: 'user', content: prompt }] }),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    const content = data.message?.content ?? data.response ?? ''
+    const parsed = typeof content === 'string' ? JSON.parse(content) : content
+    if (parsed.overload_tip) appendAIMemory({ pattern: `Gym: ${String(parsed.overload_tip)}` })
+    return {
+      rating: (['excellent','good','fair','below_par'].includes(parsed.rating) ? parsed.rating : 'good') as GymCoachResponse['rating'],
+      headline:        String(parsed.headline ?? ''),
+      volume_analysis: String(parsed.volume_analysis ?? ''),
+      overload_tip:    String(parsed.overload_tip ?? ''),
+      next_session:    String(parsed.next_session ?? ''),
+      recovery_tip:    String(parsed.recovery_tip ?? ''),
+      form_note:       parsed.form_note ? String(parsed.form_note) : undefined,
     }
   } catch { return null }
 }

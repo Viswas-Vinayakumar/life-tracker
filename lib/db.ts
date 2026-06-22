@@ -72,6 +72,12 @@ export async function deleteFoodEntry(id: string): Promise<void> {
   try { await supabase.from('food_entries').delete().eq('id', id) } catch { /* offline */ }
 }
 
+export async function updateFoodEntry(id: string, patch: Partial<FoodEntry>): Promise<void> {
+  const existing = await offlineGet<FoodEntry>('food_entries', id)
+  if (existing) offlinePut('food_entries', { ...existing, ...patch, id } as Record<string, unknown>)
+  try { await supabase.from('food_entries').update(patch).eq('id', id) } catch { /* offline */ }
+}
+
 // ─── Finance ──────────────────────────────────────────────────
 
 export async function getFinanceEntries(month: string): Promise<FinancialEntry[]> {
@@ -147,3 +153,22 @@ export async function completeTodo(id: string): Promise<void> {
 
 // Re-export food parser
 export { parseFood } from './ollama'
+
+// ─── Workout Logs ─────────────────────────────────────────────
+import type { WorkoutSession } from '@/types'
+
+export async function getWorkoutSession(date: string): Promise<WorkoutSession | null> {
+  return (await offlineGet<WorkoutSession>('workout_logs', date)) ?? null
+}
+
+export async function saveWorkoutSession(session: WorkoutSession): Promise<void> {
+  const record = { ...session, updated_at: new Date().toISOString() }
+  await offlinePut('workout_logs', record as Record<string, unknown>)
+}
+
+export async function getWorkoutHistory(days: number): Promise<WorkoutSession[]> {
+  const all = await offlineGetAll<WorkoutSession>('workout_logs')
+  return all
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, days)
+}

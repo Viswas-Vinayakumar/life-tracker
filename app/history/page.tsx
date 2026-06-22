@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import { format, parseISO, subDays } from 'date-fns'
 import { Check, X, ChevronDown, ChevronUp, Pencil, Save, Loader2, CalendarPlus } from 'lucide-react'
 import { getScoreColor, getScoreLabel, calculateScore } from '@/lib/scoring'
@@ -225,8 +225,8 @@ export default function HistoryPage() {
                   { key: 'skincare_am' as const, label: '☀️ AM', color: 'var(--amber)' },
                   { key: 'skincare_pm' as const, label: '🌙 PM', color: 'var(--indigo)' },
                 ].map(({ key, label, color }) => (
-                  <>
-                    <span key={`label-${key}`} style={{ fontSize: 10, color: 'var(--text-3)', textAlign: 'right', paddingRight: 8, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                  <Fragment key={key}>
+                    <span style={{ fontSize: 10, color: 'var(--text-3)', textAlign: 'right', paddingRight: 8, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
                       {label}
                     </span>
                     {[...last30].reverse().map(l => (
@@ -238,7 +238,7 @@ export default function HistoryPage() {
                         title={`${label}: ${format(parseISO(l.date), 'MMM d')} — ${l[key] ? 'Done' : 'Missed'}`}
                       />
                     ))}
-                  </>
+                  </Fragment>
                 ))}
               </div>
             </div>

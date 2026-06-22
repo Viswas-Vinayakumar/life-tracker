@@ -68,3 +68,24 @@ export const EXPENSE_CATEGORIES = [
 export const INCOME_CATEGORIES = ['Salary', 'Freelance', 'Investment', 'Gift', 'Other'] as const
 
 export const NUTRITION_GOALS = { calories: 2200, protein: 150, carbs: 250, fat: 70, fiber: 30, water_glasses: 8, sleep_hours: 8 }
+
+// ─── Workout ───────────────────────────────────────────────────
+export interface WorkoutSet {
+  reps: number
+  weight_kg?: number
+}
+
+export interface WorkoutExercise {
+  name: string
+  muscle_group?: string
+  sets: WorkoutSet[]
+}
+
+export interface WorkoutSession {
+  id?: string
+  date: string                  // YYYY-MM-DD
+  duration_min?: number         // total gym time including rest
+  exercises: WorkoutExercise[]
+  notes?: string
+  created_at?: string
+}

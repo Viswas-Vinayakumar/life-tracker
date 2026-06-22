@@ -6,10 +6,11 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts'
-import { Flame, TrendingUp, Target, Trophy, Dumbbell, BookOpen, Droplets, Moon, Apple, Zap } from 'lucide-react'
-import type { DailyLog, FoodEntry } from '@/types'
+import { Flame, TrendingUp, Target, Trophy, Dumbbell, BookOpen, Droplets, Moon, Apple, Zap, RefreshCw, Brain } from 'lucide-react'
+import type { DailyLog, FoodEntry, WorkoutSession, Todo } from '@/types'
 import { getScoreColor, getScoreLabel } from '@/lib/scoring'
-import { getLogs, getFoodEntriesRange } from '@/lib/db'
+import { getLogs, getFoodEntriesRange, getWorkoutHistory, getTodos } from '@/lib/db'
+import { isOllamaRunning, getLifeSummary, type LifeSummary } from '@/lib/ollama'
 import { format as formatDate } from 'date-fns'
 
 const PIE_COLORS = ['#a78bfa', '#38bdf8', '#34d399', '#fbbf24', '#f87171']
@@ -17,7 +18,6 @@ const TODAY = formatDate(new Date(), 'yyyy-MM-dd')
 const GOALS = { calories: 2200, protein: 150, carbs: 250, fat: 70, fiber: 30 }
 const SUGAR_LIMIT   = 25    // g/day clean diet hard limit
 const SODIUM_LIMIT  = 2000  // mg/day
-const WATER_TARGET  = 8     // glasses
 
 function calcStreak(logs: DailyLog[], key: keyof DailyLog): number {
   let streak = 0
@@ -67,85 +67,49 @@ function Ring({ score, size = 80, strokeWidth = 7, color, children }: {
   )
 }
 
-// Premium vital gauge card
-function VitalCard({
-  label, icon, value, unit, target, targetLabel, inverted = false,
-  color, warningAt, dangerAt, description,
-}: {
-  label: string; icon: React.ReactNode; value: number; unit: string
-  target: number; targetLabel: string; inverted?: boolean
-  color: string; warningAt?: number; dangerAt?: number; description?: string
-}) {
-  const pct = inverted
-    ? Math.min(value / target, 1.5)         // higher = worse
-    : Math.min(value / target, 1)           // higher = better
 
-  const overLimit = inverted && value > target
-  const scoreColor = inverted
-    ? (dangerAt && value > dangerAt ? 'var(--error)' : warningAt && value > warningAt ? 'var(--warning)' : 'var(--success)')
-    : (warningAt && value < warningAt ? 'var(--warning)' : color)
-
-  const ringScore = inverted
-    ? Math.max(0, 100 - Math.round((value / target) * 100))   // lower intake = higher ring
-    : Math.round(pct * 100)
-
-  return (
-    <div className="card" style={{ padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, ${scoreColor}, transparent)` }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <Ring score={ringScore} size={64} strokeWidth={6} color={scoreColor}>
-          <span style={{ fontSize: 14, fontWeight: 800, color: scoreColor, lineHeight: 1 }} className="tabular-nums">
-            {value < 1000 ? value : `${(value/1000).toFixed(1)}k`}
-          </span>
-        </Ring>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
-            <span style={{ color: scoreColor }}>{icon}</span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-1)' }}>{label}</span>
-            {overLimit && (
-              <span style={{ fontSize: 8, fontWeight: 800, padding: '2px 5px', borderRadius: 8, background: `color-mix(in srgb, var(--error) 15%, transparent)`, color: 'var(--error)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                OVER
-              </span>
-            )}
-          </div>
-          <p style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 6 }}>{description ?? targetLabel}</p>
-          <div style={{ height: 3, background: 'var(--bg-3)', borderRadius: 2, overflow: 'hidden' }}>
-            <div style={{
-              height: '100%',
-              width: `${Math.min(pct * 100, 100)}%`,
-              background: scoreColor,
-              borderRadius: 2,
-              transition: 'width 1.1s cubic-bezier(0.34,1.2,0.64,1)',
-            }} />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-            <span style={{ fontSize: 9, color: 'var(--text-3)' }}>
-              {value}{unit} {inverted ? `of ${target}${unit} limit` : `/ ${target}${unit} target`}
-            </span>
-            <span style={{ fontSize: 9, fontWeight: 700, color: scoreColor }}>
-              {inverted
-                ? (overLimit ? `${value - target}${unit} over` : `${target - value}${unit} left`)
-                : `${Math.round(pct * 100)}%`}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
+const LABEL_COLOR: Record<LifeSummary['label'], string> = {
+  peak: 'var(--success)', strong: 'var(--cyan)', growing: 'var(--warning)', needs_work: 'var(--error)',
+}
+const LABEL_TEXT: Record<LifeSummary['label'], string> = {
+  peak: 'Peak Form', strong: 'Strong', growing: 'Growing', needs_work: 'Needs Work',
 }
 
 export default function DashboardPage() {
   const [logs, setLogs] = useState<DailyLog[]>([])
   const [food30, setFood30] = useState<FoodEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [aiSummary, setAiSummary] = useState<LifeSummary | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [ollamaOk, setOllamaOk] = useState<boolean | null>(null)
 
   useEffect(() => {
     const end = TODAY
     const start = formatDate(subDays(new Date(), 29), 'yyyy-MM-dd')
-    Promise.all([getLogs(30), getFoodEntriesRange(start, end)])
-      .then(([l, f30]) => { setLogs(l); setFood30(f30); setLoading(false) })
+    Promise.all([getLogs(30), getFoodEntriesRange(start, end), isOllamaRunning(), getWorkoutHistory(30), getTodos()])
+      .then(([l, f30, ok, workouts, todos]) => {
+        setLogs(l); setFood30(f30); setOllamaOk(ok); setLoading(false)
+        if (ok && l.length > 0) loadAiSummary(l, f30, false, workouts as WorkoutSession[], todos as Todo[])
+      })
       .catch(() => setLoading(false))
   }, [])
+
+  const loadAiSummary = async (l: DailyLog[], f: FoodEntry[], force = false, workouts?: WorkoutSession[], todos?: Todo[]) => {
+    const cacheKey = `lifeos_life_summary_${TODAY}`
+    if (!force) {
+      const cached = localStorage.getItem(cacheKey)
+      if (cached) { try { setAiSummary(JSON.parse(cached)); return } catch { /* ignore */ } }
+    }
+    setAiLoading(true)
+    const todoStats = todos ? {
+      total: todos.length,
+      completed: todos.filter((t: Todo) => t.status === 'completed').length,
+      pending: todos.filter((t: Todo) => t.status === 'pending').length,
+    } : undefined
+    const result = await getLifeSummary(l, f, workouts, todoStats)
+    if (result) { setAiSummary(result); localStorage.setItem(cacheKey, JSON.stringify(result)) }
+    setAiLoading(false)
+  }
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 12, color: 'var(--text-3)' }}>
@@ -257,6 +221,55 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* ── AI Life Summary ── */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <p className="section-label">AI Life Coach</p>
+          <button onClick={async () => { const [w, t] = await Promise.all([getWorkoutHistory(30), getTodos()]); loadAiSummary(logs, food30, true, w as WorkoutSession[], t as Todo[]) }} disabled={aiLoading || !ollamaOk}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 8, border: '1px solid var(--border-2)', background: 'transparent', cursor: 'default', fontSize: 10, color: 'var(--text-3)', opacity: !ollamaOk ? 0.35 : 1 }}>
+            <RefreshCw size={9} style={{ animation: aiLoading ? 'spin 1s linear infinite' : 'none' }} />
+            {aiLoading ? 'Analysing…' : 'Refresh'}
+          </button>
+        </div>
+        <div className="card" style={{ padding: '16px 18px', position: 'relative', overflow: 'hidden', borderColor: aiSummary ? `color-mix(in srgb, ${LABEL_COLOR[aiSummary.label]} 25%, transparent)` : 'var(--border-2)' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, var(--violet), var(--cyan), var(--success))', opacity: 0.8 }} />
+          {aiLoading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-3)', padding: '8px 0' }}>
+              <div style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid var(--violet)', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
+              <span style={{ fontSize: 12 }}>Analysing your 30-day patterns…</span>
+            </div>
+          )}
+          {!aiLoading && aiSummary && (
+            <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', animation: 'fade-up 0.2s ease both' }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: `color-mix(in srgb, ${LABEL_COLOR[aiSummary.label]} 12%, transparent)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Brain size={16} color={LABEL_COLOR[aiSummary.label]} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 10, background: `color-mix(in srgb, ${LABEL_COLOR[aiSummary.label]} 12%, transparent)`, color: LABEL_COLOR[aiSummary.label], textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                    {LABEL_TEXT[aiSummary.label]}
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)' }}>{aiSummary.headline}</span>
+                </div>
+                <p style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.7, marginBottom: 6 }}>{aiSummary.insight}</p>
+                <p style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.6, marginBottom: 10 }}>{aiSummary.pattern}</p>
+                {aiSummary.suggestion && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    <span style={{ fontSize: 11, padding: '4px 10px', borderRadius: 20, background: 'var(--bg-2)', border: '1px solid var(--border-2)', color: 'var(--text-2)' }}>→ {aiSummary.suggestion}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {!aiLoading && !aiSummary && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', padding: '4px 0' }}>
+              <Brain size={14} style={{ opacity: 0.3 }} />
+              <p style={{ fontSize: 12 }}>{ollamaOk ? 'Generating your life analysis…' : 'Install Ollama for AI coaching · brew install ollama'}</p>
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* ── Overall Health Score ── */}
       <div className="card" style={{ padding: '22px 26px', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, var(--violet), var(--cyan), var(--success), var(--amber))', opacity: 0.9 }} />
@@ -341,48 +354,45 @@ export default function DashboardPage() {
         )}
       </section>
 
-      {/* ── Body & Nutrition Vitals ── */}
+      {/* ── Compact Nutrition Overview ── */}
       {daysWithFood > 0 && (
         <section>
-          <p className="section-label">Nutrition Vitals — 30-Day Avg</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-            <VitalCard
-              label="Water"
-              icon={<Droplets size={13} />}
-              value={Math.round(avgWater * 10) / 10}
-              unit=" gl"
-              target={WATER_TARGET}
-              targetLabel={`Goal: ${WATER_TARGET} glasses/day`}
-              description="Hydration — fat metabolism"
-              color="var(--cyan)"
-              warningAt={5}
-            />
-            <VitalCard
-              label="Sugar"
-              icon={<Flame size={13} />}
-              value={avgSugar}
-              unit="g"
-              target={SUGAR_LIMIT}
-              targetLabel={`Limit: ${SUGAR_LIMIT}g/day (clean diet)`}
-              description="Clean diet — 10% BF target"
-              color="var(--success)"
-              warningAt={18}
-              dangerAt={25}
-              inverted
-            />
-            <VitalCard
-              label="Sodium"
-              icon={<Zap size={13} />}
-              value={avgSodium}
-              unit="mg"
-              target={SODIUM_LIMIT}
-              targetLabel={`Limit: ${SODIUM_LIMIT}mg/day`}
-              description="Water retention & definition"
-              color="var(--success)"
-              warningAt={1600}
-              dangerAt={2000}
-              inverted
-            />
+          <p className="section-label">Nutrition — 30-Day Avg</p>
+          <div className="card" style={{ padding: '14px 18px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {[
+                { label: 'Calories',  avg: avgCal,     goal: GOALS.calories, unit: 'kcal', color: 'var(--warning)' },
+                { label: 'Protein',   avg: avgProtein, goal: GOALS.protein,  unit: 'g',    color: '#a78bfa' },
+                { label: 'Carbs',     avg: avgCarbs,   goal: GOALS.carbs,    unit: 'g',    color: '#38bdf8' },
+                { label: 'Fat',       avg: avgFat,     goal: GOALS.fat,      unit: 'g',    color: '#fbbf24' },
+                { label: 'Fiber',     avg: avgFiber,   goal: GOALS.fiber,    unit: 'g',    color: '#34d399' },
+              ].map(({ label, avg, goal, unit, color }) => {
+                const pct = Math.min(avg / goal, 1.5)
+                const over = avg > goal * 1.1
+                return (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 10, color: 'var(--text-3)', width: 58, flexShrink: 0 }}>{label}</span>
+                    <div style={{ flex: 1, height: 4, background: 'var(--bg-3)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.min(pct * 100, 100)}%`, background: over ? 'var(--warning)' : color, borderRadius: 2, transition: 'width 1.1s cubic-bezier(0.34,1.2,0.64,1)' }} />
+                    </div>
+                    <span className="tabular-nums" style={{ fontSize: 10, color: over ? 'var(--warning)' : color, fontWeight: 700, width: 72, textAlign: 'right', flexShrink: 0 }}>{avg}{unit} <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>/ {goal}</span></span>
+                  </div>
+                )
+              })}
+            </div>
+            <div style={{ display: 'flex', gap: 12, marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border-2)' }}>
+              {[
+                { label: 'Water avg', value: `${(avgWater).toFixed(1)} gl`, color: 'var(--cyan)', limit: null },
+                { label: 'Sugar avg', value: `${avgSugar}g`, color: avgSugar > SUGAR_LIMIT ? 'var(--error)' : avgSugar > 18 ? 'var(--warning)' : 'var(--success)', limit: `${SUGAR_LIMIT}g limit` },
+                { label: 'Sodium avg', value: `${avgSodium < 1000 ? avgSodium : (avgSodium/1000).toFixed(1)+'k'}mg`, color: avgSodium > SODIUM_LIMIT ? 'var(--error)' : avgSodium > 1600 ? 'var(--warning)' : 'var(--success)', limit: `${SODIUM_LIMIT/1000}k limit` },
+              ].map(({ label, value, color, limit }) => (
+                <div key={label} style={{ flex: 1, textAlign: 'center', padding: '7px 0', borderRadius: 8, background: 'var(--bg-2)' }}>
+                  <p className="tabular-nums" style={{ fontSize: 14, fontWeight: 800, color }}>{value}</p>
+                  <p style={{ fontSize: 9, color: 'var(--text-3)', marginTop: 2 }}>{label}</p>
+                  {limit && <p style={{ fontSize: 8, color, marginTop: 1, opacity: 0.7 }}>{limit}</p>}
+                </div>
+              ))}
+            </div>
           </div>
         </section>
       )}
@@ -408,11 +418,11 @@ export default function DashboardPage() {
       </section>
 
       {/* ── Charts grid ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, alignItems: 'stretch' }}>
         {chartData.length > 0 && (
-          <section>
+          <section style={{ display: 'flex', flexDirection: 'column' }}>
             <p className="section-label">Gym vs Study</p>
-            <div className="card" style={{ padding: '14px 14px 10px' }}>
+            <div className="card" style={{ padding: '14px 14px 10px', flex: 1 }}>
               <div style={{ display: 'flex', gap: 10, marginBottom: 8 }}>
                 {[{ c: 'var(--violet)', l: `Gym (${gymDays}d)` }, { c: 'var(--cyan)', l: `Study (${studyDays}d)` }].map(d => (
                   <div key={d.l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -435,10 +445,10 @@ export default function DashboardPage() {
         )}
 
         {habitPieData.length > 0 && (
-          <section>
+          <section style={{ display: 'flex', flexDirection: 'column' }}>
             <p className="section-label">Habit Split</p>
-            <div className="card" style={{ padding: 14 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="card" style={{ padding: 14, flex: 1, display: 'flex', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
                 <PieChart width={90} height={90}>
                   <Pie data={habitPieData} cx={40} cy={40} innerRadius={22} outerRadius={40} dataKey="value" strokeWidth={0}>
                     {habitPieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
@@ -458,9 +468,9 @@ export default function DashboardPage() {
           </section>
         )}
 
-        <section>
+        <section style={{ display: 'flex', flexDirection: 'column' }}>
           <p className="section-label">Growth Level</p>
-          <div className="card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1, justifyContent: 'center' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <p style={{ fontSize: 11, color: 'var(--text-3)' }}>Level {level}</p>

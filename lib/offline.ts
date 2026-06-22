@@ -2,9 +2,9 @@
 import { openDB, type IDBPDatabase } from 'idb'
 
 const DB_NAME = 'life-os-v1'
-const DB_VERSION = 3  // bumped: added activity_log store
+const DB_VERSION = 4  // bumped: added workout_logs store
 
-type StoreKey = 'daily_logs' | 'food_entries' | 'financial_entries' | 'todos' | 'activity_log'
+type StoreKey = 'daily_logs' | 'food_entries' | 'financial_entries' | 'todos' | 'activity_log' | 'workout_logs'
 type DB = IDBPDatabase<Record<StoreKey, { key: string; value: Record<string, unknown> }>>
 
 let dbPromise: Promise<DB> | null = null
@@ -18,6 +18,7 @@ function getDB(): Promise<DB> {
         if (!db.objectStoreNames.contains('financial_entries')) db.createObjectStore('financial_entries', { keyPath: 'id' })
         if (!db.objectStoreNames.contains('todos'))             db.createObjectStore('todos', { keyPath: 'id' })
         if (!db.objectStoreNames.contains('activity_log'))      db.createObjectStore('activity_log', { keyPath: 'id' })
+        if (!db.objectStoreNames.contains('workout_logs'))      db.createObjectStore('workout_logs', { keyPath: 'date' })
       },
     })
   }
